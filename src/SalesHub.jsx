@@ -387,7 +387,7 @@ function FileModal2({ onSave, onClose }) {
 }
 
 // ── Opportunity Detail Page ───────────────────────────────────────────────────
-function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions }) {
+function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive }) {
   const [subTab, setSubTab] = useState("overview");
   const [actModal, setAM]   = useState(null);
   const [fileModal, setFM]  = useState(false);
@@ -446,6 +446,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions })
           {opp.stage!=="계약완료"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
           {opp.stage==="계약완료"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 계약완료</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
+          {onArchive && <Btn variant="ghost" size="sm" style={{ color:C.textMuted }} onClick={()=>{ if(window.confirm(`"${opp.name}"을 아카이브 하시겠습니까?\n아카이브된 딜은 파이프라인 > 아카이브 탭에서 확인할 수 있습니다.`)) { onArchive(opp); onBack(); } }}>📦 아카이브</Btn>}
         </div>
       </div>
 
@@ -766,20 +767,20 @@ function OppListView({ opps, clients, onSelect }) {
 }
 
 // ── Pipeline Main ─────────────────────────────────────────────────────────────
-function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings }) {
-  const [pipeTab, setPipeTab]   = useState("pipeline"); // "pipeline" | "meetings"
+function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore }) {
+  const [pipeTab, setPipeTab]   = useState("pipeline");
   const [view, setView]         = useState("kanban");
   const [selected, setSelected] = useState(initialTarget || null);
   const [addModal, setAddModal] = useState(false);
   const [ownerFilter, setOwner] = useState("전체");
   const [stageFilter, setStage] = useState("활성");
+  const [archSearch, setAS]     = useState("");
 
-  // If a search target arrives, open it immediately
   useState(() => {
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
   }, [initialTarget]);
 
-  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions}/>;
+  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive}/>;
 
   const owners = ["전체",...new Set(opps.map(o=>o.owner))];
   const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="계약완료"&&o.stage!=="손실":stageFilter==="계약완료"?o.stage==="계약완료":stageFilter==="손실"?o.stage==="손실":true);
@@ -799,6 +800,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       {[
         { id:"pipeline", label:"영업기회 보드" },
         { id:"meetings", label:`회의록 (${meetings?.length||0})` },
+        { id:"archive",  label:`아카이브 (${archived?.length||0})` },
       ].map(t => (
         <button key={t.id} onClick={()=>setPipeTab(t.id)} style={{
           padding:"10px 22px", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
@@ -867,6 +869,64 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
 
     {/* ── 회의록 ── */}
     {pipeTab==="meetings" && <Meetings meetings={meetings||[]} onUpdate={onUpdateMeetings}/>}
+
+    {/* ── 아카이브 ── */}
+    {pipeTab==="archive" && <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:2 }}>아카이브된 영업기회</div>
+          <div style={{ fontSize:12, color:C.textMuted }}>삭제 대신 보관된 딜 · 복원하면 파이프라인으로 돌아옵니다</div>
+        </div>
+        <input value={archSearch} onChange={e=>setAS(e.target.value)} placeholder="검색..." style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 14px", color:C.text, fontSize:13, outline:"none", width:200 }}/>
+      </div>
+
+      {(!archived||archived.length===0) && (
+        <Card style={{ textAlign:"center", padding:"60px 32px" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>📦</div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>아카이브가 비어 있습니다</div>
+          <div style={{ fontSize:13, color:C.textMuted }}>영업기회 상세 페이지에서 📦 아카이브 버튼을 누르면 여기 보관됩니다</div>
+        </Card>
+      )}
+
+      <div style={{ display:"grid", gap:10 }}>
+        {(archived||[])
+          .filter(o => !archSearch || o.name.includes(archSearch) || (clients.find(c=>c.id===o.accountId)?.name||"").includes(archSearch))
+          .map(o => {
+            const cl = clients.find(c=>c.id===o.accountId)||{};
+            const s  = STAGE_MAP[o.stage]||{};
+            return (
+              <div key={o.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 20px", display:"flex", alignItems:"center", gap:16, opacity:.85 }}>
+                {/* Archive icon */}
+                <div style={{ width:40, height:40, borderRadius:10, background:C.surfaceUp, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📦</div>
+
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{o.name}</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>
+                    {cl.name} · {o.owner}
+                    {o.archivedAt && <span style={{ marginLeft:10, color:C.textDim }}>아카이브: {o.archivedAt}</span>}
+                  </div>
+                </div>
+
+                {/* Stage pill */}
+                <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15`, flexShrink:0 }}>
+                  <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
+                </span>
+
+                {/* Value */}
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ fontSize:15, fontWeight:800, color:s.color }}>{fmt(o.value)}</div>
+                  <div style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</div>
+                </div>
+
+                {/* Restore button */}
+                <Btn size="sm" variant="ghost" onClick={()=>{ if(window.confirm(`"${o.name}"을 파이프라인으로 복원하시겠습니까?`)) onRestore(o); }}>
+                  ↩ 복원
+                </Btn>
+              </div>
+            );
+          })}
+      </div>
+    </div>}
   </div>;
 }
 
@@ -3089,6 +3149,7 @@ function App() {
   const isMobile = useIsMobile();
   const [tab, sT]         = useState("dashboard");
   const [opps, sO]        = useState(INIT_OPPS);
+  const [archived, sArch] = useState([]); // archived opportunities
   const [clients]         = useState(INIT_CLIENTS);
   const [db, sDb]         = useState(INIT_DB);
   const [meetings, sMt]   = useState(INIT_MEETINGS);
@@ -3140,7 +3201,7 @@ function App() {
 
     <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px" }}>
       {tab==="dashboard"&&<Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients}/>}
-      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={sO} clients={clients} actions={actions} onUpdateActions={sAc} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={sMt}/>}
+      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={sO} clients={clients} actions={actions} onUpdateActions={sAc} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={sMt} archived={archived} onArchive={(opp)=>{ sO(prev=>prev.filter(o=>o.id!==opp.id)); sArch(prev=>[{...opp,archivedAt:today()}, ...prev]); }} onRestore={(opp)=>{ sArch(prev=>prev.filter(o=>o.id!==opp.id)); sO(prev=>[...prev,{...opp,archivedAt:undefined}]); }}/>}
       {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={sGoals} onEditRevDate={o => setRE(o)}/>}
       {tab==="clientdb" &&<ClientDB  clients={clients} db={db} onUpdateDb={sDb} opps={opps}/>}
       {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={sAc} onUpdateOpps={sO}/>}
