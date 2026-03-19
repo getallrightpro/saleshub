@@ -1185,7 +1185,7 @@ const TABS = [
 export default function App() {
   const [tab, sT]      = useState("dashboard");
   const [opps, sO]     = useState(INIT_OPPS);
-  const [clients, _sCl] = useState(INIT_CLIENTS);
+  const [clients] = useState(INIT_CLIENTS);
   const [db, sDb]      = useState(INIT_DB);
   const [meetings, sMt]= useState(INIT_MEETINGS);
   const [actions, sAc] = useState(INIT_ACTIONS);
