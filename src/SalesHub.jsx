@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 // ─── Design Tokens (Light Theme) ───────────────────────────────────────────
 const C = {
@@ -379,7 +379,6 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions })
   const account   = clients.find(c=>c.id===opp.accountId)||{};
   const stageCfg  = STAGE_MAP[opp.stage]||{};
   const oppActions= actions.filter(a=>a.oppId===opp.id);
-  const strategy  = STAGE_STRATEGY[opp.stage]||{};
   const weighted  = Math.round(opp.value * opp.probability / 100);
 
   const update = patch => onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,...patch}:o));
@@ -1186,7 +1185,7 @@ const TABS = [
 export default function App() {
   const [tab, sT]      = useState("dashboard");
   const [opps, sO]     = useState(INIT_OPPS);
-  const [clients, sCl] = useState(INIT_CLIENTS);
+  const [clients, _sCl] = useState(INIT_CLIENTS);
   const [db, sDb]      = useState(INIT_DB);
   const [meetings, sMt]= useState(INIT_MEETINGS);
   const [actions, sAc] = useState(INIT_ACTIONS);
