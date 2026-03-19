@@ -14,6 +14,30 @@ const MSAL_CONFIG = {
 const LOGIN_SCOPES = { scopes:["User.Read"] };
 const msalInstance = new PublicClientApplication(MSAL_CONFIG);
 
+// ─── Supabase Config ─────────────────────────────────────────────────────────
+const SB_URL = "https://ikydiyzdzhghrcalsgwy.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlr" +
+  "eWRpeXpkemhnaHJjYWxzZ3d5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4ODAzOTUsImV4cCI6" +
+  "MjA4OTQ1NjM5NX0.pMZU3dChnZwgCjsPG9n7VaG3BC9pVoVmCeCwy6ECyCA";
+
+const sbHeaders = { "Content-Type":"application/json", "apikey":SB_KEY, "Authorization":`Bearer ${SB_KEY}` };
+
+// Generic Supabase helpers
+const sbGet = async (table) => {
+  const res = await fetch(`${SB_URL}/rest/v1/${table}?select=*`, { headers:sbHeaders });
+  return res.ok ? res.json() : [];
+};
+const sbUpsert = async (table, id, data) => {
+  await fetch(`${SB_URL}/rest/v1/${table}`, {
+    method:"POST",
+    headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
+    body: JSON.stringify({ id, data }),
+  });
+};
+const sbDelete = async (table, id) => {
+  await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method:"DELETE", headers:sbHeaders });
+};
+
 // ─── Design Tokens (Light Theme) ───────────────────────────────────────────
 const C = {
   bg:"#F1F5F9", surface:"#FFFFFF", surfaceUp:"#F8FAFC", border:"#E2E8F0",
@@ -387,7 +411,7 @@ function FileModal2({ onSave, onClose }) {
 }
 
 // ── Opportunity Detail Page ───────────────────────────────────────────────────
-function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive }) {
+function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive, isAdmin, onDelete }) {
   const [subTab, setSubTab] = useState("overview");
   const [actModal, setAM]   = useState(null);
   const [fileModal, setFM]  = useState(false);
@@ -447,6 +471,11 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           {opp.stage==="계약완료"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 계약완료</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
           {onArchive && <Btn variant="ghost" size="sm" style={{ color:C.textMuted }} onClick={()=>{ if(window.confirm(`"${opp.name}"을 아카이브 하시겠습니까?\n아카이브된 딜은 파이프라인 > 아카이브 탭에서 확인할 수 있습니다.`)) { onArchive(opp); onBack(); } }}>📦 아카이브</Btn>}
+          {isAdmin && onDelete && (
+            <Btn variant="danger" size="sm" onClick={()=>{ if(window.confirm(`⚠️ "${opp.name}"을 영구 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`)) { onDelete(opp.id); onBack(); } }}>
+              🗑 영구삭제
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -767,7 +796,7 @@ function OppListView({ opps, clients, onSelect }) {
 }
 
 // ── Pipeline Main ─────────────────────────────────────────────────────────────
-function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore }) {
+function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin }) {
   const [pipeTab, setPipeTab]   = useState("pipeline");
   const [view, setView]         = useState("kanban");
   const [selected, setSelected] = useState(initialTarget || null);
@@ -780,7 +809,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
   }, [initialTarget]);
 
-  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive}/>;
+  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); }}/>;
 
   const owners = ["전체",...new Set(opps.map(o=>o.owner))];
   const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="계약완료"&&o.stage!=="손실":stageFilter==="계약완료"?o.stage==="계약완료":stageFilter==="손실"?o.stage==="손실":true);
@@ -918,10 +947,17 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
                   <div style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</div>
                 </div>
 
-                {/* Restore button */}
-                <Btn size="sm" variant="ghost" onClick={()=>{ if(window.confirm(`"${o.name}"을 파이프라인으로 복원하시겠습니까?`)) onRestore(o); }}>
-                  ↩ 복원
-                </Btn>
+                {/* Restore + Admin delete */}
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  <Btn size="sm" variant="ghost" onClick={()=>{ if(window.confirm(`"${o.name}"을 파이프라인으로 복원하시겠습니까?`)) onRestore(o); }}>
+                    ↩ 복원
+                  </Btn>
+                  {isAdmin && (
+                    <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`⚠️ "${o.name}"을 영구 삭제하시겠습니까?\n되돌릴 수 없습니다.`)) onRestore && onRestore({...o, _permDelete:true}); }}>
+                      🗑 삭제
+                    </Btn>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -3145,11 +3181,17 @@ export default function AppRoot() {
   );
 }
 
+// ─── Admin config ────────────────────────────────────────────────────────────
+const ADMIN_EMAIL = "jyshin@psmgroup.co.kr";
+
 function App() {
   const isMobile = useIsMobile();
+  const { accounts } = useMsal();
+  const isAdmin = (accounts[0]?.username || "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
   const [tab, sT]         = useState("dashboard");
   const [opps, sO]        = useState(INIT_OPPS);
-  const [archived, sArch] = useState([]); // archived opportunities
+  const [archived, sArch] = useState([]);
   const [clients]         = useState(INIT_CLIENTS);
   const [db, sDb]         = useState(INIT_DB);
   const [meetings, sMt]   = useState(INIT_MEETINGS);
@@ -3157,23 +3199,102 @@ function App() {
   const [goals, sGoals]   = useState(INIT_GOALS);
   const [searchTarget, setST] = useState(null);
   const [revEditOpp, setRE]   = useState(null);
+  const [dbReady, setDbReady] = useState(false);
+  const [saving, setSaving]   = useState(false);
+
+  // ── Load from Supabase on mount ──
+  useState(() => {
+    (async () => {
+      try {
+        const [oppRows, dbRows, meetRows, actRows, goalRows, archRows] = await Promise.all([
+          sbGet("opps"), sbGet("clients_db"), sbGet("meetings"),
+          sbGet("actions"), sbGet("goals"), sbGet("archived_opps"),
+        ]);
+        if (oppRows.length)  sO(oppRows.map(r=>r.data));
+        if (dbRows.length)   sDb(Object.fromEntries(dbRows.map(r=>[r.id, r.data])));
+        if (meetRows.length) sMt(meetRows.map(r=>r.data));
+        if (actRows.length)  sAc(actRows.map(r=>r.data));
+        if (goalRows.length) sGoals(goalRows[0]?.data || INIT_GOALS);
+        if (archRows.length) sArch(archRows.map(r=>r.data));
+      } catch(e) { console.warn("DB load failed, using local data", e); }
+      setDbReady(true);
+    })();
+  }, []);
+
+  // ── Save helpers ──
+  const saveOpps = async (updater) => {
+    sO(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setSaving(true);
+      Promise.all(next.map(o => sbUpsert("opps", o.id, o)))
+        .finally(() => setSaving(false));
+      return next;
+    });
+  };
+  const saveDb = async (updater) => {
+    sDb(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setSaving(true);
+      Promise.all(Object.entries(next).map(([id, data]) => sbUpsert("clients_db", id, data)))
+        .finally(() => setSaving(false));
+      return next;
+    });
+  };
+  const saveMeetings = async (updater) => {
+    sMt(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setSaving(true);
+      Promise.all(next.map(m => sbUpsert("meetings", m.id, m)))
+        .finally(() => setSaving(false));
+      return next;
+    });
+  };
+  const saveActions = async (updater) => {
+    sAc(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setSaving(true);
+      Promise.all(next.map(a => sbUpsert("actions", a.id, a)))
+        .finally(() => setSaving(false));
+      return next;
+    });
+  };
+  const saveGoals = async (updater) => {
+    sGoals(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setSaving(true);
+      sbUpsert("goals", "goals_main", next).finally(() => setSaving(false));
+      return next;
+    });
+  };
+  const archiveOpp = (opp) => {
+    const entry = { ...opp, archivedAt: today() };
+    sO(prev => prev.filter(o => o.id !== opp.id));
+    sArch(prev => [entry, ...prev]);
+    sbDelete("opps", opp.id);
+    sbUpsert("archived_opps", opp.id, entry);
+  };
+  const restoreOpp = (opp) => {
+    if (opp._permDelete) {
+      sArch(prev => prev.filter(o => o.id !== opp.id));
+      sbDelete("archived_opps", opp.id);
+    } else {
+      const restored = { ...opp, archivedAt: undefined };
+      sArch(prev => prev.filter(o => o.id !== opp.id));
+      sO(prev => [...prev, restored]);
+      sbDelete("archived_opps", opp.id);
+      sbUpsert("opps", restored.id, restored);
+    }
+  };
 
   // ── 모바일 뷰 ──
   if (isMobile) {
-    return <MobileApp
-      opps={opps} onUpdateOpps={sO}
-      actions={actions} onUpdateActions={sAc}
-      clients={clients} db={db}
-    />;
+    return <MobileApp opps={opps} onUpdateOpps={saveOpps} actions={actions} onUpdateActions={saveActions} clients={clients} db={db}/>;
   }
 
   const pending   = actions.filter(a=>!a.done).length;
   const lateCount = actions.filter(a=>!a.done&&isLate(a.dueDate)).length;
 
-  const handleSearchNav = (targetTab, opp) => {
-    sT(targetTab);
-    if (opp) setST(opp);
-  };
+  const handleSearchNav = (targetTab, opp) => { sT(targetTab); if (opp) setST(opp); };
 
   return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text }}>
     <div style={{ borderBottom:`1px solid ${C.border}`, padding:"0 32px", background:C.surface, position:"sticky", top:0, zIndex:100, boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
@@ -3192,6 +3313,16 @@ function App() {
           {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{pending}</span>}
         </button>)}
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:14 }}>
+          {/* DB status indicator */}
+          {!dbReady && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background:C.yellow, display:"inline-block" }}/>데이터 로딩 중...
+          </span>}
+          {dbReady && saving && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background:C.accent, display:"inline-block" }}/>저장 중...
+          </span>}
+          {dbReady && !saving && <span style={{ fontSize:11, color:C.green, display:"flex", alignItems:"center", gap:5 }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>저장됨
+          </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
           <span style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
           <UserMenu/>
@@ -3201,14 +3332,13 @@ function App() {
 
     <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px" }}>
       {tab==="dashboard"&&<Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients}/>}
-      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={sO} clients={clients} actions={actions} onUpdateActions={sAc} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={sMt} archived={archived} onArchive={(opp)=>{ sO(prev=>prev.filter(o=>o.id!==opp.id)); sArch(prev=>[{...opp,archivedAt:today()}, ...prev]); }} onRestore={(opp)=>{ sArch(prev=>prev.filter(o=>o.id!==opp.id)); sO(prev=>[...prev,{...opp,archivedAt:undefined}]); }}/>}
-      {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={sGoals} onEditRevDate={o => setRE(o)}/>}
-      {tab==="clientdb" &&<ClientDB  clients={clients} db={db} onUpdateDb={sDb} opps={opps}/>}
-      {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={sAc} onUpdateOpps={sO}/>}
+      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin}/>}
+      {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={saveGoals} onEditRevDate={o=>setRE(o)}/>}
+      {tab==="clientdb" &&<ClientDB  clients={clients} db={db} onUpdateDb={saveDb} opps={opps}/>}
+      {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={saveActions} onUpdateOpps={saveOpps}/>}
     </div>
-    {/* Global revenue date edit modal */}
     {revEditOpp && <RevDateEditModal opp={revEditOpp} onClose={()=>setRE(null)}
-      onSave={d => { sO(prev => prev.map(o => o.id===revEditOpp.id ? {...o, revenueDate:d} : o)); setRE(null); }}
+      onSave={d=>{ saveOpps(prev=>prev.map(o=>o.id===revEditOpp.id?{...o,revenueDate:d}:o)); setRE(null); }}
     />}
   </div>;
 }
