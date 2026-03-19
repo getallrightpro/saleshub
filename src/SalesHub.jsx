@@ -1,4 +1,18 @@
 import { useState } from "react";
+import { PublicClientApplication } from "@azure/msal-browser";
+import { MsalProvider, useMsal, useIsAuthenticated } from "@azure/msal-react";
+
+// ─── Microsoft 365 Auth Config ───────────────────────────────────────────────
+const MSAL_CONFIG = {
+  auth: {
+    clientId:    "38c76329-7a64-4851-951f-467e18289eec",
+    authority:   "https://login.microsoftonline.com/6d052b13-5a73-4ae7-90b4-a5b916b60e44",
+    redirectUri: window.location.origin,
+  },
+  cache: { cacheLocation:"sessionStorage", storeAuthStateInCookie:false },
+};
+const LOGIN_SCOPES = { scopes:["User.Read"] };
+const msalInstance = new PublicClientApplication(MSAL_CONFIG);
 
 // ─── Design Tokens (Light Theme) ───────────────────────────────────────────
 const C = {
@@ -2618,7 +2632,338 @@ function GlobalSearch({ opps, clients, actions, onNavigate }) {
   );
 }
 
-// ─── APP SHELL ────────────────────────────────────────────────────────────────
+// ─── MOBILE APP ───────────────────────────────────────────────────────────────
+const MC = {
+  bg:"#F8F9FA", surface:"#FFFFFF", border:"#EBEBEB",
+  accent:"#3B6FE8", accentSoft:"rgba(59,111,232,0.08)",
+  green:"#10B981", greenSoft:"rgba(16,185,129,0.09)",
+  yellow:"#F59E0B", yellowSoft:"rgba(245,158,11,0.10)",
+  red:"#EF4444", redSoft:"rgba(239,68,68,0.09)",
+  text:"#1A1A2E", textMuted:"#6B7494", textDim:"#C0C4D0",
+};
+
+// Quick activity log modal (mobile)
+function MobileLogModal({ opps, onSave, onClose }) {
+  const [oppId,   setOpp]  = useState(opps[0]?.id || "");
+  const [type,    setType] = useState("방문미팅");
+  const [content, setCont] = useState("");
+  const [by,      setBy]   = useState("");
+
+  const save = () => {
+    if (!content.trim()) return;
+    const entry = { id:uid(), date:today(), type, content, by };
+    onSave(oppId, entry);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:900, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+      <div style={{ background:MC.surface, borderRadius:"20px 20px 0 0", padding:"24px 20px 36px", boxShadow:"0 -8px 32px rgba(0,0,0,.12)" }} onClick={e=>e.stopPropagation()}>
+        {/* Handle bar */}
+        <div style={{ width:40, height:4, background:MC.border, borderRadius:2, margin:"0 auto 20px" }}/>
+        <div style={{ fontSize:16, fontWeight:700, color:MC.text, marginBottom:16 }}>활동 기록</div>
+
+        {/* Opp select */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>영업기회</div>
+          <select value={oppId} onChange={e=>setOpp(e.target.value)} style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none" }}>
+            {opps.filter(o=>o.stage!=="손실").map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </div>
+
+        {/* Type */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {["방문미팅","전화통화","화상회의","이메일","기타"].map(t=>(
+              <button key={t} onClick={()=>setType(t)} style={{ padding:"8px 14px", borderRadius:20, border:`1px solid ${type===t?MC.accent:MC.border}`, background:type===t?MC.accentSoft:"transparent", color:type===t?MC.accent:MC.textMuted, fontSize:13, fontWeight:600, cursor:"pointer" }}>{t}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>내용</div>
+          <textarea value={content} onChange={e=>setCont(e.target.value)} placeholder="미팅 내용을 간략히 기록하세요..." style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none", resize:"none", minHeight:90, fontFamily:"inherit", boxSizing:"border-box" }}/>
+        </div>
+
+        {/* By */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>작성자</div>
+          <input value={by} onChange={e=>setBy(e.target.value)} placeholder="이름" style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none", boxSizing:"border-box" }}/>
+        </div>
+
+        <button onClick={save} style={{ width:"100%", background:MC.accent, color:"#fff", border:"none", borderRadius:12, padding:"16px", fontSize:15, fontWeight:700, cursor:"pointer" }}>
+          기록 저장
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }) {
+  const [mTab, setMTab]   = useState("actions"); // actions | pipeline | contacts
+  const [logModal, setLM] = useState(false);
+  const [search, setSearch] = useState("");
+  const [dateF, setDateF]   = useState("오늘"); // 오늘 | 이번주 | 전체
+
+  const todayStr = today();
+  const weekEnd  = (() => { const d=new Date(); d.setDate(d.getDate()+(7-d.getDay())); return d.toISOString().split("T")[0]; })();
+
+  // Actions filtered
+  const filteredActs = actions
+    .filter(a => !a.done)
+    .filter(a => {
+      if (dateF==="오늘")   return a.dueDate === todayStr;
+      if (dateF==="이번주") return a.dueDate >= todayStr && a.dueDate <= weekEnd;
+      return true;
+    })
+    .sort((a,b)=>({높음:0,중간:1,낮음:2}[a.priority]||0)-({높음:0,중간:1,낮음:2}[b.priority]||0));
+
+  // Toggle action done + auto-log
+  const toggleAction = (id) => {
+    const act = actions.find(a=>a.id===id);
+    if (!act) return;
+    onUpdateActions(prev=>prev.map(a=>a.id===id?{...a,done:true}:a));
+    if (act.oppId) {
+      const entry = { id:uid(), date:todayStr, type:"액션완료", content:`[액션 완료] ${act.title}`, by:act.owner||"—" };
+      onUpdateOpps(prev=>prev.map(o=>o.id===act.oppId?{...o,activities:[entry,...(o.activities||[])]}:o));
+    }
+  };
+
+  // Save activity log
+  const saveLog = (oppId, entry) => {
+    onUpdateOpps(prev=>prev.map(o=>o.id===oppId?{...o,activities:[entry,...(o.activities||[])]}:o));
+  };
+
+  // Contacts search
+  const allContacts = clients.flatMap(cl => {
+    const d = db[cl.id]||{contacts:[]};
+    return d.contacts.map(c=>({...c, clientName:cl.name, clientIndustry:cl.industry}));
+  }).filter(c => !search || c.name.includes(search) || c.clientName.includes(search) || (c.title||"").includes(search));
+
+  // Pipeline top deals
+  const activeOpps = opps
+    .filter(o=>o.stage!=="손실"&&o.stage!=="계약완료")
+    .sort((a,b)=>b.value*b.probability/100 - a.value*a.probability/100);
+  const wonOpps = opps.filter(o=>o.stage==="계약완료");
+
+  const lateCount  = actions.filter(a=>!a.done&&isLate(a.dueDate)).length;
+  const todayCount = actions.filter(a=>!a.done&&a.dueDate===todayStr).length;
+
+  const tabItems = [
+    { id:"actions",   label:"액션",    icon:"✓" },
+    { id:"pipeline",  label:"파이프라인", icon:"◉" },
+    { id:"contacts",  label:"연락처",  icon:"👤" },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:MC.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:MC.text, paddingBottom:80 }}>
+
+      {/* Mobile Header */}
+      <div style={{ background:MC.surface, borderBottom:`1px solid ${MC.border}`, padding:"14px 20px", position:"sticky", top:0, zIndex:100, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ width:28, height:28, borderRadius:7, background:MC.accent, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <span style={{ fontSize:12, fontWeight:900, color:"#fff" }}>S</span>
+          </div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:800, color:MC.text, letterSpacing:"-.02em" }}>SalesHub</div>
+            <div style={{ fontSize:9, color:MC.textMuted, letterSpacing:".08em", textTransform:"uppercase" }}>Kangwon Energy</div>
+          </div>
+        </div>
+        <div style={{ fontSize:12, color:MC.textMuted }}>{new Date().toLocaleDateString("ko-KR",{month:"short",day:"numeric",weekday:"short"})}</div>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding:"16px 16px 0" }}>
+
+        {/* ── 액션 탭 ── */}
+        {mTab==="actions" && <div>
+          {/* Quick stats */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+            {[
+              { label:"오늘 마감",  val:todayCount,  color:todayCount>0?MC.yellow:MC.textMuted, bg:todayCount>0?MC.yellowSoft:"transparent" },
+              { label:"기한 초과",  val:lateCount,   color:lateCount>0?MC.red:MC.textMuted,    bg:lateCount>0?MC.redSoft:"transparent"    },
+            ].map(s=>(
+              <div key={s.label} style={{ background:MC.surface, border:`1px solid ${s.color}30`, borderRadius:12, padding:"14px 16px" }}>
+                <div style={{ fontSize:11, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
+                <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Date filter pills */}
+          <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+            {["오늘","이번주","전체"].map(f=>(
+              <button key={f} onClick={()=>setDateF(f)} style={{ padding:"7px 16px", borderRadius:20, border:`1px solid ${dateF===f?MC.accent:MC.border}`, background:dateF===f?MC.accentSoft:"transparent", color:dateF===f?MC.accent:MC.textMuted, fontSize:13, fontWeight:600, cursor:"pointer" }}>{f}</button>
+            ))}
+          </div>
+
+          {/* Action list */}
+          {filteredActs.length === 0 && (
+            <div style={{ textAlign:"center", padding:"48px 0", color:MC.textMuted }}>
+              <div style={{ fontSize:36, marginBottom:8 }}>✓</div>
+              <div style={{ fontSize:15, fontWeight:600, color:MC.text }}>모든 액션 완료!</div>
+            </div>
+          )}
+          <div style={{ display:"grid", gap:10 }}>
+            {filteredActs.map(a=>{
+              const opp = opps.find(o=>o.id===a.oppId)||{};
+              const ov  = isLate(a.dueDate);
+              const priColor = PRI_CFG[a.priority]||MC.textMuted;
+              return (
+                <div key={a.id} style={{ background:MC.surface, border:`1px solid ${ov?MC.red+"40":MC.border}`, borderRadius:14, padding:"14px 16px", display:"flex", gap:14, alignItems:"flex-start" }}>
+                  {/* Check button */}
+                  <button onClick={()=>toggleAction(a.id)} style={{ width:26, height:26, borderRadius:8, border:`2px solid ${MC.border}`, background:"transparent", cursor:"pointer", flexShrink:0, marginTop:2, display:"flex", alignItems:"center", justifyContent:"center" }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:15, fontWeight:600, color:MC.text, marginBottom:4 }}>{a.title}</div>
+                    <div style={{ fontSize:12, color:MC.textMuted, marginBottom:8 }}>{opp.name||"—"} · {a.owner}</div>
+                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                      <span style={{ fontSize:11, background:`${priColor}18`, color:priColor, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{a.priority}</span>
+                      <span style={{ fontSize:12, color:ov?MC.red:MC.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>}
+
+        {/* ── 파이프라인 탭 ── */}
+        {mTab==="pipeline" && <div>
+          {/* Summary pills */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+            {[
+              { label:"활성 딜",  val:activeOpps.length,  color:MC.accent  },
+              { label:"계약완료", val:wonOpps.length,     color:MC.green   },
+              { label:"파이프라인", val:fmt(activeOpps.reduce((s,o)=>s+o.value,0)), color:MC.text },
+            ].map(s=>(
+              <div key={s.label} style={{ background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:12, padding:"12px 14px" }}>
+                <div style={{ fontSize:10, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
+                <div style={{ fontSize:18, fontWeight:900, color:s.color }}>{s.val}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Deal list */}
+          <div style={{ display:"grid", gap:10 }}>
+            {activeOpps.map(o=>{
+              const cl = clients.find(c=>c.id===o.accountId)||{};
+              const s  = STAGE_MAP[o.stage]||{};
+              const late = isLate(o.nextStepDate);
+              return (
+                <div key={o.id} style={{ background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:14, padding:"16px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:700, color:MC.text, marginBottom:2 }}>{o.name}</div>
+                      <div style={{ fontSize:12, color:MC.textMuted }}>{cl.name} · {o.owner}</div>
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                      <div style={{ fontSize:16, fontWeight:900, color:s.color }}>{fmt(o.value)}</div>
+                      <div style={{ fontSize:10, color:MC.textMuted }}>{o.probability}%</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                      <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
+                    </span>
+                    {o.nextStep && (
+                      <div style={{ fontSize:11, color:late?MC.red:MC.textMuted, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>
+                        {late?"⚠ ":""}{o.nextStep}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {activeOpps.length===0&&<div style={{ textAlign:"center", padding:"48px 0", color:MC.textMuted }}>활성 딜이 없습니다</div>}
+          </div>
+        </div>}
+
+        {/* ── 연락처 탭 ── */}
+        {mTab==="contacts" && <div>
+          {/* Search */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+            <span style={{ fontSize:16, color:MC.textMuted }}>🔍</span>
+            <input
+              value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="이름, 고객사, 직책 검색..."
+              style={{ background:"none", border:"none", outline:"none", fontSize:15, color:MC.text, width:"100%", fontFamily:"inherit" }}
+            />
+            {search&&<button onClick={()=>setSearch("")} style={{ background:"none", border:"none", color:MC.textMuted, fontSize:16, cursor:"pointer", padding:0 }}>✕</button>}
+          </div>
+
+          {/* Contact list */}
+          <div style={{ display:"grid", gap:10 }}>
+            {allContacts.length===0&&<div style={{ textAlign:"center", padding:"48px 0", color:MC.textMuted }}>{search?"검색 결과 없음":"등록된 담당자가 없습니다"}</div>}
+            {allContacts.map((c,i)=>{
+              const iColor = INFLUENCE_COLOR[c.influence||"검토자"]||MC.textMuted;
+              return (
+                <div key={`${c.id}-${i}`} style={{ background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:14, padding:"16px" }}>
+                  <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:10 }}>
+                    <div style={{ width:44, height:44, borderRadius:"50%", background:`${iColor}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:800, color:iColor, flexShrink:0 }}>{c.name[0]}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+                        <span style={{ fontSize:15, fontWeight:700, color:MC.text }}>{c.name}</span>
+                        {c.primary&&<span style={{ fontSize:10, background:MC.accentSoft, color:MC.accent, padding:"1px 7px", borderRadius:8, fontWeight:700 }}>주담당</span>}
+                      </div>
+                      <div style={{ fontSize:12, color:MC.textMuted }}>{c.title} · {c.clientName}</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:10, paddingTop:10, borderTop:`1px solid ${MC.border}` }}>
+                    {c.phone&&(
+                      <a href={`tel:${c.phone}`} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"10px", background:MC.accentSoft, borderRadius:10, textDecoration:"none", color:MC.accent, fontSize:13, fontWeight:600 }}>
+                        📞 전화
+                      </a>
+                    )}
+                    {c.email&&(
+                      <a href={`mailto:${c.email}`} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"10px", background:`${MC.green}12`, borderRadius:10, textDecoration:"none", color:MC.green, fontSize:13, fontWeight:600 }}>
+                        ✉ 이메일
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>}
+      </div>
+
+      {/* FAB — 활동 기록 (액션/파이프라인 탭에서만) */}
+      {(mTab==="actions"||mTab==="pipeline") && (
+        <button onClick={()=>setLM(true)} style={{ position:"fixed", bottom:88, right:20, width:56, height:56, borderRadius:"50%", background:MC.accent, color:"#fff", border:"none", cursor:"pointer", fontSize:24, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 16px rgba(59,111,232,.45)", zIndex:200 }}>
+          +
+        </button>
+      )}
+
+      {/* Bottom Tab Bar */}
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:MC.surface, borderTop:`1px solid ${MC.border}`, display:"flex", zIndex:100, paddingBottom:"env(safe-area-inset-bottom, 0px)" }}>
+        {tabItems.map(t=>(
+          <button key={t.id} onClick={()=>setMTab(t.id)} style={{ flex:1, padding:"10px 0 12px", background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, fontFamily:"inherit" }}>
+            <span style={{ fontSize:20, lineHeight:1 }}>{t.icon}</span>
+            <span style={{ fontSize:10, fontWeight:mTab===t.id?700:500, color:mTab===t.id?MC.accent:MC.textMuted, letterSpacing:".02em" }}>{t.label}</span>
+            {t.id==="actions"&&actions.filter(a=>!a.done&&a.dueDate===todayStr).length>0&&(
+              <span style={{ position:"absolute", top:8, width:7, height:7, borderRadius:"50%", background:MC.red }}/>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Activity log modal */}
+      {logModal && <MobileLogModal opps={opps.filter(o=>o.stage!=="손실")} onSave={saveLog} onClose={()=>setLM(false)}/>}
+    </div>
+  );
+}
+function useIsMobile() {
+  const [mobile, setMobile] = useState(typeof window !== "undefined" && window.innerWidth < 768);
+  useState(() => {
+    const handler = () => setMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return mobile;
+}
+
 const TABS = [
   { id:"dashboard", label:"대시보드",   icon:"◈" },
   { id:"pipeline",  label:"파이프라인", icon:"◉" },
@@ -2627,7 +2972,121 @@ const TABS = [
   { id:"actions",   label:"액션",       icon:"◎" },
 ];
 
-export default function App() {
+// ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
+function LoginPage() {
+  const { instance } = useMsal();
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const handleLogin = async () => {
+    setLoading(true); setError("");
+    try {
+      await instance.loginPopup(LOGIN_SCOPES);
+    } catch(e) {
+      if (e.errorCode !== "user_cancelled") setError("로그인에 실패했습니다. 다시 시도해주세요.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
+      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:400, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+        {/* Logo */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:32 }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:"#3B6FE8", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <span style={{ fontSize:20, fontWeight:900, color:"#fff" }}>S</span>
+          </div>
+          <div style={{ textAlign:"left" }}>
+            <div style={{ fontSize:20, fontWeight:900, color:"#1E293B", letterSpacing:"-.03em" }}>SalesHub</div>
+            <div style={{ fontSize:10, color:"#64748B", letterSpacing:".10em", textTransform:"uppercase" }}>Kangwon Energy</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>로그인</div>
+        <div style={{ fontSize:14, color:"#64748B", marginBottom:32, lineHeight:1.6 }}>
+          강원에너지 Microsoft 365 계정으로<br/>로그인하세요
+        </div>
+
+        {/* MS Login Button */}
+        <button onClick={handleLogin} disabled={loading} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"14px 20px", background:loading?"#E2E8F0":"#fff", border:"1.5px solid #E2E8F0", borderRadius:12, cursor:loading?"not-allowed":"pointer", fontSize:15, fontWeight:600, color:"#1E293B", transition:"all .15s" }}>
+          {/* Microsoft Logo SVG */}
+          <svg width="20" height="20" viewBox="0 0 21 21" fill="none">
+            <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+            <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+          </svg>
+          {loading ? "로그인 중..." : "Microsoft 365로 로그인"}
+        </button>
+
+        {error && <div style={{ marginTop:16, padding:"10px 14px", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, fontSize:13, color:"#DC2626" }}>{error}</div>}
+
+        <div style={{ marginTop:28, fontSize:12, color:"#94A3B8", lineHeight:1.6 }}>
+          강원에너지 임직원만 접근 가능합니다.<br/>
+          문의: IT팀
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH WRAPPER ─────────────────────────────────────────────────────────────
+function AuthenticatedApp() {
+  const isAuthenticated = useIsAuthenticated();
+  if (!isAuthenticated) return <LoginPage/>;
+  return <App/>;
+}
+
+// ─── USER MENU (nav bar) ──────────────────────────────────────────────────────
+function UserMenu() {
+  const { instance, accounts } = useMsal();
+  const [open, setOpen] = useState(false);
+  const account = accounts[0];
+  const name    = account?.name || account?.username || "사용자";
+  const email   = account?.username || "";
+  const initials = name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "U";
+
+  const handleLogout = () => {
+    instance.logoutPopup({ postLogoutRedirectUri: window.location.origin });
+  };
+
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={()=>setOpen(o=>!o)} style={{ display:"flex", alignItems:"center", gap:8, background:"none", border:"none", cursor:"pointer", padding:"4px 8px", borderRadius:8 }}>
+        <div style={{ width:32, height:32, borderRadius:"50%", background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{initials}</div>
+        <div style={{ textAlign:"left" }}>
+          <div style={{ fontSize:12, fontWeight:600, color:C.text, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</div>
+          <div style={{ fontSize:10, color:C.textMuted, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{email}</div>
+        </div>
+        <span style={{ fontSize:10, color:C.textMuted }}>▾</span>
+      </button>
+
+      {open && <>
+        <div onClick={()=>setOpen(false)} style={{ position:"fixed", inset:0, zIndex:199 }}/>
+        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"6px", boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:200, minWidth:200 }}>
+          <div style={{ padding:"10px 14px", borderBottom:`1px solid ${C.border}`, marginBottom:6 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{name}</div>
+            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{email}</div>
+          </div>
+          <button onClick={handleLogout} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"none", border:"none", cursor:"pointer", borderRadius:8, fontSize:13, color:C.red, fontFamily:"inherit", textAlign:"left" }}>
+            <span>→</span> 로그아웃
+          </button>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+export default function AppRoot() {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AuthenticatedApp/>
+    </MsalProvider>
+  );
+}
+
+function App() {
+  const isMobile = useIsMobile();
   const [tab, sT]         = useState("dashboard");
   const [opps, sO]        = useState(INIT_OPPS);
   const [clients]         = useState(INIT_CLIENTS);
@@ -2636,7 +3095,16 @@ export default function App() {
   const [actions, sAc]    = useState(INIT_ACTIONS);
   const [goals, sGoals]   = useState(INIT_GOALS);
   const [searchTarget, setST] = useState(null);
-  const [revEditOpp, setRE]   = useState(null); // global revenue date edit
+  const [revEditOpp, setRE]   = useState(null);
+
+  // ── 모바일 뷰 ──
+  if (isMobile) {
+    return <MobileApp
+      opps={opps} onUpdateOpps={sO}
+      actions={actions} onUpdateActions={sAc}
+      clients={clients} db={db}
+    />;
+  }
 
   const pending   = actions.filter(a=>!a.done).length;
   const lateCount = actions.filter(a=>!a.done&&isLate(a.dueDate)).length;
@@ -2665,7 +3133,7 @@ export default function App() {
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:14 }}>
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
           <span style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
-          <div style={{ width:32, height:32, borderRadius:"50%", background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:"#fff" }}>팀</div>
+          <UserMenu/>
         </div>
       </div>
     </div>
