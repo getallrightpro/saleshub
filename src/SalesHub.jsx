@@ -2989,16 +2989,16 @@ function AuthenticatedApp() {
   const { accounts }    = useMsal();
   const [accessStatus, setStatus] = useState("checking"); // checking | approved | pending | denied
   const [pendingUsers,  setPending] = useState([]);
-  const email = (accounts[0]?.username || "").toLowerCase();
-  const name  = accounts[0]?.name || email;
+  const account = accounts[0];
+  const email   = (account?.username || account?.idTokenClaims?.email || account?.idTokenClaims?.preferred_username || "").toLowerCase().trim();
+  const name    = account?.name || email;
 
   // Check access on login
   useState(() => {
     if (!isAuthenticated || !email) return;
     (async () => {
       try {
-        // Check if user exists in allowed_users
-        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}&select=*`, { headers:sbHeaders });
+        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}&select=email,approved,role`, { headers:sbHeaders });
         const rows = await res.json();
         if (rows.length > 0 && rows[0].approved) {
           setStatus("approved");
@@ -3009,11 +3009,11 @@ function AuthenticatedApp() {
           await fetch(`${SB_URL}/rest/v1/allowed_users`, {
             method:"POST",
             headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
-            body: JSON.stringify({ email, name, role:"member", approved:false }),
+            body: JSON.stringify({ email, name: email, role:"member", approved:false }),
           });
           setStatus("pending");
         }
-      } catch(e) { setStatus("approved"); } // fallback
+      } catch(e) { setStatus("approved"); }
     })();
   }, [isAuthenticated, email]);
 
