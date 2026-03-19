@@ -2983,21 +2983,227 @@ function LoginPage() {
   );
 }
 
-// ─── AUTH WRAPPER ─────────────────────────────────────────────────────────────
+// ─── AUTH WRAPPER — Access Control ───────────────────────────────────────────
 function AuthenticatedApp() {
   const isAuthenticated = useIsAuthenticated();
+  const { accounts }    = useMsal();
+  const [accessStatus, setStatus] = useState("checking"); // checking | approved | pending | denied
+  const [pendingUsers,  setPending] = useState([]);
+  const email = (accounts[0]?.username || "").toLowerCase();
+  const name  = accounts[0]?.name || email;
+
+  // Check access on login
+  useState(() => {
+    if (!isAuthenticated || !email) return;
+    (async () => {
+      try {
+        // Check if user exists in allowed_users
+        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}&select=*`, { headers:sbHeaders });
+        const rows = await res.json();
+        if (rows.length > 0 && rows[0].approved) {
+          setStatus("approved");
+        } else if (rows.length > 0 && !rows[0].approved) {
+          setStatus("pending");
+        } else {
+          // First time — auto-register as pending
+          await fetch(`${SB_URL}/rest/v1/allowed_users`, {
+            method:"POST",
+            headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
+            body: JSON.stringify({ email, name, role:"member", approved:false }),
+          });
+          setStatus("pending");
+        }
+      } catch(e) { setStatus("approved"); } // fallback
+    })();
+  }, [isAuthenticated, email]);
+
   if (!isAuthenticated) return <LoginPage/>;
+  if (accessStatus === "checking") return <AccessCheckingPage/>;
+  if (accessStatus === "pending")  return <AccessPendingPage email={email} name={name}/>;
+  if (accessStatus === "denied")   return <AccessDeniedPage/>;
   return <App/>;
+}
+
+function AccessCheckingPage() {
+  return (
+    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ width:48, height:48, border:`3px solid #E2E8F0`, borderTop:`3px solid #3B6FE8`, borderRadius:"50%", animation:"spin 1s linear infinite", margin:"0 auto 20px" }}/>
+        <div style={{ fontSize:16, fontWeight:600, color:"#1E293B" }}>접근 권한 확인 중...</div>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    </div>
+  );
+}
+
+function AccessPendingPage({ email, name }) {
+  const { instance } = useMsal();
+  return (
+    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+        <div style={{ width:64, height:64, borderRadius:"50%", background:"#FEF9C3", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, margin:"0 auto 20px" }}>⏳</div>
+        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>승인 대기 중</div>
+        <div style={{ fontSize:14, color:"#64748B", marginBottom:24, lineHeight:1.7 }}>
+          <strong style={{ color:"#1E293B" }}>{name}</strong>님의 계정이<br/>
+          관리자 승인을 기다리고 있습니다.<br/><br/>
+          <span style={{ fontSize:12, color:"#94A3B8" }}>{email}</span>
+        </div>
+        <div style={{ background:"#F8FAFC", border:"1px solid #E2E8F0", borderRadius:12, padding:"14px 16px", marginBottom:24, fontSize:13, color:"#64748B", lineHeight:1.6 }}>
+          관리자(jyshin@psmgroup.co.kr)에게<br/>
+          접근 승인을 요청해주세요.
+        </div>
+        <button onClick={()=>instance.logoutPopup()} style={{ width:"100%", padding:"12px", background:"transparent", border:"1px solid #E2E8F0", borderRadius:10, fontSize:14, color:"#64748B", cursor:"pointer" }}>
+          로그아웃
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AccessDeniedPage() {
+  const { instance } = useMsal();
+  return (
+    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, textAlign:"center" }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>🚫</div>
+        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>접근 거부됨</div>
+        <div style={{ fontSize:14, color:"#64748B", marginBottom:24 }}>이 계정은 SalesHub 접근이 허용되지 않습니다.</div>
+        <button onClick={()=>instance.logoutPopup()} style={{ width:"100%", padding:"12px", background:"#EF4444", border:"none", borderRadius:10, fontSize:14, color:"#fff", cursor:"pointer", fontWeight:600 }}>
+          로그아웃
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADMIN PANEL ──────────────────────────────────────────────────────────────
+function AdminPanel({ onClose }) {
+  const [users, setUsers]   = useState([]);
+  const [loading, setLoad]  = useState(true);
+  const [filter, setFilter] = useState("pending"); // pending | approved | all
+
+  const loadUsers = async () => {
+    setLoad(true);
+    const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?select=*&order=added_at.desc`, { headers:sbHeaders });
+    const rows = await res.json();
+    setUsers(Array.isArray(rows) ? rows : []);
+    setLoad(false);
+  };
+
+  useState(() => { loadUsers(); }, []);
+
+  const approve = async (email) => {
+    await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}`, {
+      method:"PATCH", headers:sbHeaders,
+      body: JSON.stringify({ approved:true }),
+    });
+    setUsers(prev => prev.map(u => u.email===email ? {...u, approved:true} : u));
+  };
+
+  const deny = async (email) => {
+    if (!window.confirm(`${email} 접근을 거부하시겠습니까?`)) return;
+    await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}`, {
+      method:"DELETE", headers:sbHeaders,
+    });
+    setUsers(prev => prev.filter(u => u.email !== email));
+  };
+
+  const pendingCount  = users.filter(u => !u.approved).length;
+  const approvedCount = users.filter(u => u.approved).length;
+
+  const filtered = users.filter(u =>
+    filter === "all"     ? true :
+    filter === "pending" ? !u.approved :
+    u.approved
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:600, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={onClose}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:640, maxHeight:"80vh", overflow:"auto", padding:"28px 32px", boxShadow:"0 24px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+          <div>
+            <div style={{ fontSize:18, fontWeight:700, color:C.text }}>사용자 관리</div>
+            <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>SalesHub 접근 권한 승인 · 관리자 전용</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20 }}>✕</button>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+          {[
+            { label:"전체",     val:users.length,   color:C.text,   id:"all"      },
+            { label:"승인 대기", val:pendingCount,  color:C.yellow, id:"pending"  },
+            { label:"승인 완료", val:approvedCount, color:C.green,  id:"approved" },
+          ].map(s=>(
+            <div key={s.id} onClick={()=>setFilter(s.id)} style={{ background:filter===s.id?C.accentSoft:C.surfaceUp, border:`1px solid ${filter===s.id?C.accent:C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", textAlign:"center" }}>
+              <div style={{ fontSize:22, fontWeight:900, color:s.color }}>{s.val}</div>
+              <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* User list */}
+        {loading && <div style={{ textAlign:"center", padding:"32px 0", color:C.textMuted }}>로딩 중...</div>}
+        {!loading && filtered.length === 0 && (
+          <div style={{ textAlign:"center", padding:"40px 0", color:C.textMuted }}>
+            {filter==="pending" ? "대기 중인 사용자가 없습니다" : "해당하는 사용자가 없습니다"}
+          </div>
+        )}
+        <div style={{ display:"grid", gap:10 }}>
+          {filtered.map(u => (
+            <div key={u.email} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12 }}>
+              {/* Avatar */}
+              <div style={{ width:40, height:40, borderRadius:"50%", background:u.approved?C.greenSoft:C.yellowSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:800, color:u.approved?C.green:C.yellow, flexShrink:0 }}>
+                {(u.name||u.email)[0].toUpperCase()}
+              </div>
+              {/* Info */}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{u.name || "—"}</div>
+                <div style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</div>
+                <div style={{ fontSize:10, color:C.textDim, marginTop:1 }}>가입: {u.added_at?.slice(0,10)}</div>
+              </div>
+              {/* Status badge */}
+              <span style={{ fontSize:11, padding:"3px 10px", borderRadius:20, fontWeight:700, background:u.approved?C.greenSoft:C.yellowSoft, color:u.approved?C.green:C.yellow, flexShrink:0 }}>
+                {u.approved ? "승인됨" : "대기 중"}
+              </span>
+              {/* Actions */}
+              <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                {!u.approved && (
+                  <button onClick={()=>approve(u.email)} style={{ padding:"6px 14px", background:C.green, color:"#fff", border:"none", borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                    승인
+                  </button>
+                )}
+                {u.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase() && (
+                  <button onClick={()=>deny(u.email)} style={{ padding:"6px 14px", background:"transparent", color:C.red, border:`1px solid ${C.red}30`, borderRadius:8, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                    {u.approved ? "차단" : "거부"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Refresh */}
+        <div style={{ textAlign:"right", marginTop:16 }}>
+          <button onClick={loadUsers} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13 }}>↻ 새로고침</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── USER MENU (nav bar) ──────────────────────────────────────────────────────
 function UserMenu() {
   const { instance, accounts } = useMsal();
-  const [open, setOpen] = useState(false);
-  const account = accounts[0];
-  const name    = account?.name || account?.username || "사용자";
-  const email   = account?.username || "";
+  const [open, setOpen]      = useState(false);
+  const [adminPanel, setAP]  = useState(false);
+  const account  = accounts[0];
+  const name     = account?.name || account?.username || "사용자";
+  const email    = account?.username || "";
   const initials = name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase() || "U";
+  const isAdmin  = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   const handleLogout = () => {
     instance.logoutPopup({ postLogoutRedirectUri: window.location.origin });
@@ -3020,12 +3226,20 @@ function UserMenu() {
           <div style={{ padding:"10px 14px", borderBottom:`1px solid ${C.border}`, marginBottom:6 }}>
             <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{name}</div>
             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{email}</div>
+            {isAdmin && <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, fontWeight:700, marginTop:4, display:"inline-block" }}>관리자</span>}
           </div>
+          {isAdmin && (
+            <button onClick={()=>{ setOpen(false); setAP(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"none", border:"none", cursor:"pointer", borderRadius:8, fontSize:13, color:C.text, fontFamily:"inherit", textAlign:"left" }}>
+              👥 사용자 관리
+            </button>
+          )}
           <button onClick={handleLogout} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"none", border:"none", cursor:"pointer", borderRadius:8, fontSize:13, color:C.red, fontFamily:"inherit", textAlign:"left" }}>
-            <span>→</span> 로그아웃
+            → 로그아웃
           </button>
         </div>
       </>}
+
+      {adminPanel && <AdminPanel onClose={()=>setAP(false)}/>}
     </div>
   );
 }
