@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { MsalProvider, useMsal, useIsAuthenticated } from "@azure/msal-react";
 
@@ -662,7 +662,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
   const [stageFilter, setStage] = useState("활성");
   const [archSearch, setAS]     = useState("");
 
-  useState(() => {
+  useEffect(() => {
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
   }, [initialTarget]);
 
@@ -2909,7 +2909,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
 }
 function useIsMobile() {
   const [mobile, setMobile] = useState(typeof window !== "undefined" && window.innerWidth < 768);
-  useState(() => {
+  useEffect(() => {
     const handler = () => setMobile(window.innerWidth < 768);
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
@@ -2994,7 +2994,7 @@ function AuthenticatedApp() {
   const name    = account?.name || email;
 
   // Check access on login
-  useState(() => {
+  useEffect(() => {
     if (!isAuthenticated || !email) return;
     (async () => {
       try {
@@ -3090,7 +3090,7 @@ function AdminPanel({ onClose }) {
     setLoad(false);
   };
 
-  useState(() => { loadUsers(); }, []);
+  useEffect(() => { loadUsers(); }, []);
 
   const approve = async (email) => {
     await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}`, {
@@ -3274,7 +3274,7 @@ function App() {
   const [saving, setSaving]   = useState(false);
 
   // ── Load from Supabase on mount ──
-  useState(() => {
+  useEffect(() => {
     (async () => {
       try {
         const [oppRows, dbRows, meetRows, actRows, goalRows, archRows, clRows] = await Promise.all([
