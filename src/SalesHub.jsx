@@ -1215,44 +1215,180 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
   </div>;
 }
 
-function ClientDB({ clients, db, onUpdateDb, opps }) {
-  const [selected, setSelected] = useState(null);
-  const [search, setSearch]     = useState("");
-  const [indFilter, setInd]     = useState("전체");
+function ClientFormModal({ client, onSave, onClose }) {
+  const blank = { name:"", industry:"", owner:"" };
+  const [f, sF] = useState(client || blank);
+  const s = k => v => sF(p => ({...p, [k]:v}));
+  return <Modal title={client ? "고객사 수정" : "고객사 추가"} onClose={onClose}>
+    <Inp label="고객사명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자"/>
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+      <Inp label="업종" value={f.industry} onChange={s("industry")} placeholder="예: 반도체, 화학"/>
+      <Inp label="영업 담당자" value={f.owner} onChange={s("owner")} placeholder="예: 김민준"/>
+    </div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn onClick={() => f.name && onSave({...f, id: client?.id || uid()})}>저장</Btn>
+    </div>
+  </Modal>;
+}
+
+function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClients, archivedDb, onArchiveClient, onRestoreClient, isAdmin }) {
+  const [selected,   setSelected] = useState(null);
+  const [search,     setSearch]   = useState("");
+  const [indFilter,  setInd]      = useState("전체");
+  const [modal,      setModal]    = useState(null);
+  const [clientTab,  setCTab]     = useState("active");
+  const [archSearch, setAS]       = useState("");
+
   if (selected) return <ClientDetail client={selected} db={db} onUpdateDb={onUpdateDb} onBack={()=>setSelected(null)} opps={opps}/>;
-  const industries=["전체",...new Set(clients.map(c=>c.industry))];
-  const list=clients.filter(c=>indFilter==="전체"||c.industry===indFilter).filter(c=>c.name.includes(search)||c.owner.includes(search));
+
+  const industries = ["전체", ...new Set(clients.map(c => c.industry).filter(Boolean))];
+  const list = clients
+    .filter(c => indFilter==="전체" || c.industry===indFilter)
+    .filter(c => c.name.includes(search) || (c.owner||"").includes(search));
+
+  const handleSave = (data) => {
+    if (modal === "add") {
+      onUpdateClients && onUpdateClients(prev => [...prev, data]);
+    } else {
+      onUpdateClients && onUpdateClients(prev => prev.map(c => c.id===data.id ? data : c));
+    }
+    setModal(null);
+  };
+
   return <div>
-    <div style={{ display:"flex", gap:12, marginBottom:20, flexWrap:"wrap", alignItems:"center" }}>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="고객사명 / 담당자 검색..." style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 14px", color:C.text, fontSize:14, outline:"none", width:260 }}/>
-      {industries.map(ind=><button key={ind} onClick={()=>setInd(ind)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${indFilter===ind?C.accent:C.border}`, background:indFilter===ind?C.accentSoft:"transparent", color:indFilter===ind?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{ind}</button>)}
-      <span style={{ marginLeft:"auto", fontSize:12, color:C.textMuted }}>{list.length}개</span>
+    {/* Sub-tabs */}
+    <div style={{ display:"flex", borderBottom:`1px solid ${C.border}`, marginBottom:20 }}>
+      {[
+        { id:"active",   label:`활성 고객사 (${clients.length})` },
+        { id:"archived", label:`아카이브 (${archivedClients?.length||0})` },
+      ].map(t=>(
+        <button key={t.id} onClick={()=>setCTab(t.id)} style={{
+          padding:"10px 22px", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit",
+          borderBottom:`2px solid ${clientTab===t.id?C.accent:"transparent"}`, marginBottom:-1,
+          color:clientTab===t.id?C.accent:C.textMuted, fontWeight:clientTab===t.id?700:500, fontSize:14,
+        }}>{t.label}</button>
+      ))}
     </div>
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
-      {list.map(c=>{
-        const d=db[c.id]||{contacts:[],history:[],files:[]};
-        const p=d.contacts.find(x=>x.primary)||d.contacts[0];
-        const cOpps=opps.filter(o=>o.accountId===c.id);
-        return <Card key={c.id} onClick={()=>setSelected(c)} style={{ padding:"20px 22px" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
-            <div style={{ width:42, height:42, borderRadius:12, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:900, color:C.accent, flexShrink:0 }}>{c.name[0]}</div>
-            <div><div style={{ fontSize:15, fontWeight:800, color:C.text }}>{c.name}</div><div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{c.industry} · {c.owner} 담당</div></div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
-            {[{label:"담당자",val:d.contacts.length,color:d.contacts.length?C.accent:C.textDim},{label:"히스토리",val:d.history.length,color:d.history.length?C.yellow:C.textDim},{label:"파일",val:d.files.length,color:d.files.length?C.green:C.textDim},{label:"영업기회",val:cOpps.length,color:cOpps.length?C.purple:C.textDim}].map(it=><div key={it.label} style={{ background:C.surfaceUp, borderRadius:8, padding:"7px 8px", textAlign:"center" }}><div style={{ fontSize:16, fontWeight:800, color:it.color }}>{it.val}</div><div style={{ fontSize:10, color:C.textMuted }}>{it.label}</div></div>)}
-          </div>
-          {p?<div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10 }}>
-            <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
-            <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
-          </div>:<div style={{ padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:12, color:C.textDim, textAlign:"center" }}>담당자 미등록</div>}
-          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, fontSize:11, color:d.history[0]?C.textMuted:C.textDim }}>
-            {d.history[0]?<span><span style={{ color:C.textDim }}>최근</span> · {d.history[0].date} {d.history[0].type}</span>:"접촉 기록 없음"}
-          </div>
-        </Card>;
-      })}
-    </div>
+
+    {/* ── 활성 고객사 ── */}
+    {clientTab==="active" && <div>
+      <div style={{ display:"flex", gap:12, marginBottom:20, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="고객사명 / 담당자 검색..." style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 14px", color:C.text, fontSize:14, outline:"none", width:260 }}/>
+        {industries.map(ind=><button key={ind} onClick={()=>setInd(ind)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${indFilter===ind?C.accent:C.border}`, background:indFilter===ind?C.accentSoft:"transparent", color:indFilter===ind?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{ind}</button>)}
+        <span style={{ marginLeft:"auto", fontSize:12, color:C.textMuted }}>{list.length}개</span>
+        <Btn onClick={()=>setModal("add")}>+ 고객사 추가</Btn>
+      </div>
+
+      {list.length === 0 && (
+        <Card style={{ textAlign:"center", padding:"60px 32px" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>🏢</div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>고객사가 없습니다</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginBottom:24 }}>고객사를 추가하고 담당자, 히스토리, 파일을 관리해보세요</div>
+          <Btn onClick={()=>setModal("add")}>+ 첫 고객사 추가</Btn>
+        </Card>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+        {list.map(c=>{
+          const d    = db[c.id]||{contacts:[],history:[],files:[]};
+          const p    = d.contacts?.find(x=>x.primary)||d.contacts?.[0];
+          const cOpps= opps.filter(o=>o.accountId===c.id);
+          return <Card key={c.id} onClick={()=>setSelected(c)} style={{ padding:"20px 22px" }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:14 }}>
+              <div style={{ width:42, height:42, borderRadius:12, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:900, color:C.accent, flexShrink:0 }}>{c.name[0]}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:15, fontWeight:800, color:C.text }}>{c.name}</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{c.industry} · {c.owner} 담당</div>
+              </div>
+              <div style={{ display:"flex", gap:4 }} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>setModal(c)} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:13, padding:"2px 6px", borderRadius:4 }} title="수정">✏</button>
+                <button onClick={()=>{ if(window.confirm(`"${c.name}"을 아카이브 하시겠습니까?\n담당자, 히스토리, 파일 등 모든 정보가 함께 보관됩니다.`)) onArchiveClient(c); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:13, padding:"2px 6px", borderRadius:4 }} title="아카이브">📦</button>
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+              {[
+                {label:"담당자",   val:d.contacts?.length||0,  color:(d.contacts?.length)?C.accent:C.textDim},
+                {label:"히스토리", val:d.history?.length||0,   color:(d.history?.length)?C.yellow:C.textDim},
+                {label:"파일",     val:d.files?.length||0,     color:(d.files?.length)?C.green:C.textDim},
+                {label:"영업기회", val:cOpps.length,           color:cOpps.length?C.purple:C.textDim},
+              ].map(it=><div key={it.label} style={{ background:C.surfaceUp, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
+                <div style={{ fontSize:16, fontWeight:800, color:it.color }}>{it.val}</div>
+                <div style={{ fontSize:10, color:C.textMuted }}>{it.label}</div>
+              </div>)}
+            </div>
+            {p?<div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10 }}>
+              <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
+              <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
+            </div>:<div style={{ padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:12, color:C.textDim, textAlign:"center" }}>담당자 미등록</div>}
+            <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, fontSize:11, color:d.history?.[0]?C.textMuted:C.textDim }}>
+              {d.history?.[0]?<span><span style={{ color:C.textDim }}>최근</span> · {d.history[0].date} {d.history[0].type}</span>:"접촉 기록 없음"}
+            </div>
+          </Card>;
+        })}
+      </div>
+    </div>}
+
+    {/* ── 아카이브 ── */}
+    {clientTab==="archived" && <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:2 }}>아카이브된 고객사</div>
+          <div style={{ fontSize:12, color:C.textMuted }}>담당자·히스토리·파일 등 모든 데이터 보존 · 복원 시 활성 목록으로 이동</div>
+        </div>
+        <input value={archSearch} onChange={e=>setAS(e.target.value)} placeholder="검색..." style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 14px", color:C.text, fontSize:13, outline:"none", width:200 }}/>
+      </div>
+
+      {(!archivedClients||archivedClients.length===0) && (
+        <Card style={{ textAlign:"center", padding:"60px 32px" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>📦</div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>아카이브가 비어 있습니다</div>
+          <div style={{ fontSize:13, color:C.textMuted }}>고객사 카드의 📦 버튼을 누르면 여기 보관됩니다</div>
+        </Card>
+      )}
+
+      <div style={{ display:"grid", gap:12 }}>
+        {(archivedClients||[])
+          .filter(c => !archSearch || c.name.includes(archSearch) || (c.owner||"").includes(archSearch))
+          .map(c => {
+            const adb   = archivedDb?.[c.id] || {};
+            const cOpps = opps.filter(o => o.accountId === c.id);
+            return (
+              <div key={c.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"18px 20px", display:"flex", alignItems:"center", gap:16, opacity:.85 }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:C.surfaceUp, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:900, color:C.textMuted, flexShrink:0 }}>{c.name[0]}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{c.name}</div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginBottom:6 }}>{c.industry} · {c.owner} 담당</div>
+                  <div style={{ display:"flex", gap:12 }}>
+                    {[
+                      {label:"담당자",   val:adb.contacts?.length||0},
+                      {label:"히스토리", val:adb.history?.length||0},
+                      {label:"파일",     val:adb.files?.length||0},
+                      {label:"영업기회", val:cOpps.length},
+                    ].map(it=>(
+                      <span key={it.label} style={{ fontSize:11, color:C.textMuted }}>
+                        <strong style={{ color:C.text }}>{it.val}</strong> {it.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {c.archivedAt && <div style={{ fontSize:11, color:C.textDim, textAlign:"center", flexShrink:0 }}>
+                  <div>아카이브</div><div style={{ fontWeight:600, color:C.textMuted }}>{c.archivedAt}</div>
+                </div>}
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  <Btn size="sm" variant="ghost" onClick={()=>{ if(window.confirm(`"${c.name}"을 복원하시겠습니까?`)) onRestoreClient(c, false); }}>↩ 복원</Btn>
+                  {isAdmin && <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`⚠️ "${c.name}"을 영구 삭제하시겠습니까?`)) onRestoreClient(c, true); }}>🗑 삭제</Btn>}
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>}
+
+    {modal && <ClientFormModal client={modal==="add"?null:modal} onClose={()=>setModal(null)} onSave={handleSave}/>}
   </div>;
 }
+
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ opps, actions, meetings, clients }) {
@@ -3263,8 +3399,10 @@ function App() {
   const [tab, sT]         = useState("dashboard");
   const [opps, sO]        = useState(INIT_OPPS);
   const [archived, sArch] = useState([]);
-  const [clients, sCl]    = useState(INIT_CLIENTS);
-  const [db, sDb]         = useState(INIT_DB);
+  const [clients, sCl]         = useState(INIT_CLIENTS);
+  const [archivedClients, sACl] = useState([]); // archived clients
+  const [db, sDb]               = useState(INIT_DB);
+  const [archivedDb, sADb]      = useState({}); // archived clients_db
   const [meetings, sMt]   = useState(INIT_MEETINGS);
   const [actions, sAc]    = useState(INIT_ACTIONS);
   const [goals, sGoals]   = useState(INIT_GOALS);
@@ -3277,10 +3415,10 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [oppRows, dbRows, meetRows, actRows, goalRows, archRows, clRows] = await Promise.all([
+        const [oppRows, dbRows, meetRows, actRows, goalRows, archRows, clRows, aclRows, adbRows] = await Promise.all([
           sbGet("opps"), sbGet("clients_db"), sbGet("meetings"),
           sbGet("actions"), sbGet("goals"), sbGet("archived_opps"),
-          sbGet("clients"),
+          sbGet("clients"), sbGet("archived_clients"), sbGet("archived_clients_db"),
         ]);
         if (oppRows.length)  sO(oppRows.map(r=>r.data));
         if (dbRows.length)   sDb(Object.fromEntries(dbRows.map(r=>[r.id, r.data])));
@@ -3289,6 +3427,8 @@ function App() {
         if (goalRows.length) sGoals(goalRows[0]?.data || INIT_GOALS);
         if (archRows.length) sArch(archRows.map(r=>r.data));
         if (clRows.length)   sCl(clRows.map(r=>r.data));
+        if (aclRows.length)  sACl(aclRows.map(r=>r.data));
+        if (adbRows.length)  sADb(Object.fromEntries(adbRows.map(r=>[r.id, r.data])));
       } catch(e) { console.warn("DB load failed, using local data", e); }
       setDbReady(true);
     })();
@@ -3368,6 +3508,43 @@ function App() {
     }
   };
 
+  // ── Client archive / restore ──
+  const archiveClient = (client) => {
+    const entry    = { ...client, archivedAt: today() };
+    const clientDb = db[client.id] || {};
+    // Remove from active
+    sCl(prev => prev.filter(c => c.id !== client.id));
+    sDb(prev => { const n={...prev}; delete n[client.id]; return n; });
+    // Add to archived
+    sACl(prev => [entry, ...prev]);
+    sADb(prev => ({ ...prev, [client.id]: clientDb }));
+    // Supabase
+    sbDelete("clients", String(client.id));
+    sbDelete("clients_db", String(client.id));
+    sbUpsert("archived_clients",    String(client.id), entry);
+    sbUpsert("archived_clients_db", String(client.id), clientDb);
+  };
+
+  const restoreClient = (client, permDelete = false) => {
+    if (permDelete) {
+      sACl(prev => prev.filter(c => c.id !== client.id));
+      sADb(prev => { const n={...prev}; delete n[client.id]; return n; });
+      sbDelete("archived_clients",    String(client.id));
+      sbDelete("archived_clients_db", String(client.id));
+    } else {
+      const restored  = { ...client, archivedAt: undefined };
+      const clientDb  = archivedDb[client.id] || {};
+      sACl(prev => prev.filter(c => c.id !== client.id));
+      sADb(prev => { const n={...prev}; delete n[client.id]; return n; });
+      sCl(prev => [...prev, restored]);
+      sDb(prev => ({ ...prev, [client.id]: clientDb }));
+      sbDelete("archived_clients",    String(client.id));
+      sbDelete("archived_clients_db", String(client.id));
+      sbUpsert("clients",    String(client.id), restored);
+      sbUpsert("clients_db", String(client.id), clientDb);
+    }
+  };
+
   // ── 모바일 뷰 ──
   if (isMobile) {
     return <MobileApp opps={opps} onUpdateOpps={saveOpps} actions={actions} onUpdateActions={saveActions} clients={clients} db={db}/>;
@@ -3416,7 +3593,7 @@ function App() {
       {tab==="dashboard"&&<Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients}/>}
       {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin}/>}
       {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={saveGoals} onEditRevDate={o=>setRE(o)}/>}
-      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps}/>}
+      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps} archivedClients={archivedClients} archivedDb={archivedDb} onArchiveClient={archiveClient} onRestoreClient={restoreClient} isAdmin={isAdmin}/>}
       {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={saveActions} onUpdateOpps={saveOpps}/>}
     </div>
     {revEditOpp && <RevDateEditModal opp={revEditOpp} onClose={()=>setRE(null)}
