@@ -745,17 +745,29 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
     {/* ── 액션 ── */}
     {subTab==="actions"&&<div>
-      <div style={{ marginBottom:20, display:"flex", justifyContent:"space-between" }}>
+      <div style={{ marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <span style={{ fontSize:13, color:C.textMuted }}>{oppActions.filter(a=>!a.done).length}개 진행 · {oppActions.filter(a=>a.done).length}개 완료</span>
+        <Btn onClick={()=>setAM("addAction")}>+ 액션 추가</Btn>
       </div>
-      {oppActions.length===0&&<div style={{ textAlign:"center", padding:"60px 0", color:C.textMuted }}>등록된 액션이 없습니다<br/><span style={{ fontSize:12 }}>액션 탭에서 이 영업기회에 액션을 추가하세요</span></div>}
+      {oppActions.length===0&&<div style={{ textAlign:"center", padding:"48px 0", color:C.textMuted }}>
+        <div style={{ fontSize:32, marginBottom:12 }}>✓</div>
+        <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>등록된 액션이 없습니다</div>
+        <div style={{ fontSize:12, color:C.textMuted, marginBottom:16 }}>이 영업기회에 필요한 액션을 추가해보세요</div>
+        <Btn size="sm" onClick={()=>setAM("addAction")}>+ 첫 액션 추가</Btn>
+      </div>}
       {oppActions.sort((a,b)=>a.done===b.done?0:a.done?1:-1).map(a=>{
         const ov=!a.done&&isLate(a.dueDate);
-        return <div key={a.id} style={{ display:"flex", alignItems:"center", gap:14, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"13px 18px", marginBottom:8, opacity:a.done?.6:1 }}>
-          <button onClick={()=>onUpdateActions(prev=>prev.map(x=>x.id===a.id?{...x,done:!x.done}:x))} style={{ width:20, height:20, borderRadius:5, border:`2px solid ${a.done?C.green:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{a.done?"✓":""}</button>
-          <div style={{ flex:1 }}><div style={{ fontSize:13, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none" }}>{a.title}</div><div style={{ fontSize:11, color:C.textMuted }}>{a.owner}</div></div>
+        return <div key={a.id} style={{ display:"flex", alignItems:"center", gap:14, background:C.surface, border:`1px solid ${ov?C.red+"40":C.border}`, borderRadius:10, padding:"13px 18px", marginBottom:8, opacity:a.done?.6:1 }}>
+          <button onClick={()=>onUpdateActions(prev=>prev.map(x=>x.id===a.id?{...x,done:!x.done}:x))} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{a.done?"✓":""}</button>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none" }}>{a.title}</div>
+            <div style={{ fontSize:11, color:C.textMuted }}>{a.owner} {a.dueDate && <span style={{ color:ov?C.red:C.textDim }}>· {ov?"⚠ ":""}{a.dueDate}</span>}</div>
+          </div>
           <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700 }}>{a.priority}</span>
-          <span style={{ fontSize:12, color:ov?C.red:C.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
+          <div style={{ display:"flex", gap:6 }}>
+            <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>수정</Btn>
+            <Btn size="sm" variant="danger" onClick={()=>onUpdateActions(prev=>prev.filter(x=>x.id!==a.id))}>삭제</Btn>
+          </div>
         </div>;
       })}
     </div>}
@@ -767,7 +779,20 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       />
     )}
 
-    {actModal&&<ActivityModal act={actModal==="new"?null:actModal} onSave={saveAct} onClose={()=>setAM(null)}/>}
+    {actModal&&actModal!=="addAction"&&!actModal._editAction&&<ActivityModal act={actModal==="new"?null:actModal} onSave={saveAct} onClose={()=>setAM(null)}/>}
+    {(actModal==="addAction"||actModal?._editAction)&&<ActionForm
+      action={actModal._editAction ? actModal : null}
+      clients={clients}
+      opps={[opp]}
+      onClose={()=>setAM(null)}
+      onSave={data=>{
+        onUpdateActions(prev => actModal._editAction
+          ? prev.map(a=>a.id===data.id?data:a)
+          : [...prev, {...data, oppId:opp.id, clientId:opp.accountId}]
+        );
+        setAM(null);
+      }}
+    />}
     {fileModal&&<FileModal2 onSave={saveFile} onClose={()=>setFM(false)}/>}
     {stageModal&&<StageMoveModal opp={opp} onSave={handleStageMove} onClose={()=>setSM(false)}/>}
   </div>;
@@ -1392,20 +1417,26 @@ function ClientNewsMonitor({ client, industry }) {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
+          model:"claude-sonnet-4-5",
           max_tokens:2000,
           tools:[{ type:"web_search_20250305", name:"web_search" }],
           messages:[{ role:"user", content:prompt }]
         })
       });
       const data = await res.json();
-      const text = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("") || "";
-      const clean = text.replace(/```json|```/g,"").trim();
-      const parsed = JSON.parse(clean);
+
+      // web_search 사용 시 여러 content 블록이 섞임 — text 블록만 합치기
+      const textBlocks = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+
+      // JSON 추출 — 코드펜스 안에 있을 수도, 그냥 텍스트일 수도 있음
+      const jsonMatch = textBlocks.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("JSON not found in response");
+      const parsed = JSON.parse(jsonMatch[0]);
       setNews(parsed);
       setLF(new Date().toLocaleString("ko-KR"));
     } catch(e) {
-      setNews({ error: true, summary:"뉴스를 불러오는 데 실패했습니다. 다시 시도해주세요." });
+      console.error("News fetch error:", e);
+      setNews({ error: true, summary:`뉴스를 불러오는 데 실패했습니다. (${e.message}) 잠시 후 다시 시도해주세요.` });
     }
     setLoading(false);
   };
@@ -1461,8 +1492,13 @@ function ClientNewsMonitor({ client, industry }) {
 
       {/* Error */}
       {news?.error && (
-        <Card style={{ textAlign:"center", padding:"40px 32px" }}>
-          <div style={{ fontSize:13, color:C.red }}>{news.summary}</div>
+        <Card style={{ padding:"32px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+            <span style={{ fontSize:24 }}>⚠️</span>
+            <div style={{ fontSize:14, fontWeight:700, color:C.red }}>뉴스 로드 실패</div>
+          </div>
+          <div style={{ fontSize:13, color:C.textMuted, marginBottom:16 }}>{news.summary}</div>
+          <Btn onClick={fetchNews}>다시 시도</Btn>
         </Card>
       )}
 
