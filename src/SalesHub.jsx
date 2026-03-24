@@ -265,8 +265,8 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
       </div>
       <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
-      <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)}))}/>
-      <Inp label="예상 금액 (원)" type="number" value={f.value} onChange={s("value")}/>
+      <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)||0}))}/>
+      <Inp label="예상 금액 (원)" type="number" value={f.value} onChange={v=>sF(p=>({...p,value:v.replace(/[^0-9]/g,"")}))} placeholder="숫자만 입력 (예: 100000000)"/>
       <Inp label="예상 계약일" type="date" value={f.closeDate} onChange={s("closeDate")}/>
       <Inp label="경쟁사" value={f.competitors} onChange={s("competitors")} placeholder="A사, B사"/>
       <Sel label="영업 소스" value={f.source} onChange={s("source")} options={["영업팀 발굴","인바운드 문의","기존 거래","레퍼런스 소개","전시회 접촉","파트너사 소개"]}/>
@@ -277,7 +277,19 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={()=>onSave({...f,value:Number(f.value),id:opp?.id||uid(),stageHistory:opp?.stageHistory||[],activities:opp?.activities||[],files:opp?.files||[]})}>저장</Btn>
+      <Btn onClick={()=>{
+        const numVal = parseInt(String(f.value).replace(/[^0-9]/g,""), 10) || 0;
+        onSave({
+          ...f,
+          value: numVal,
+          probability: Number(f.probability)||0,
+          id: opp?.id||uid(),
+          stageHistory: opp?.stageHistory||[],
+          activities:   opp?.activities||[],
+          files:        opp?.files||[],
+          stageStrategies: opp?.stageStrategies||{},
+        });
+      }}>저장</Btn>
     </div>
   </Modal>;
 }
@@ -339,6 +351,97 @@ function FileModal2({ onSave, onClose }) {
       <Btn onClick={()=>f.name&&onSave({...f,id:uid()})}>추가</Btn>
     </div>
   </Modal>;
+}
+
+// ── KPI Grid (인라인 편집 가능) ───────────────────────────────────────────────
+function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
+  const [editing, setEditing] = useState(null); // "value" | "probability" | "closeDate" | null
+  const [val, setVal]         = useState("");
+
+  const startEdit = (field, current) => {
+    setEditing(field);
+    setVal(field==="value" ? String(opp.value) : String(current||""));
+  };
+
+  const save = () => {
+    if (editing === "value") {
+      const num = parseInt(String(val).replace(/[^0-9]/g,""), 10) || 0;
+      onUpdate({ value: num });
+    } else if (editing === "probability") {
+      const num = Math.min(100, Math.max(0, parseInt(val)||0));
+      onUpdate({ probability: num });
+    } else if (editing === "closeDate") {
+      onUpdate({ closeDate: val });
+    }
+    setEditing(null);
+  };
+
+  const handleKey = (e) => {
+    if (e.key==="Enter") save();
+    if (e.key==="Escape") setEditing(null);
+  };
+
+  const inputStyle = {
+    background:"#fff", border:`1.5px solid ${C.accent}`, borderRadius:6,
+    padding:"4px 8px", color:C.text, fontSize:15, fontWeight:700,
+    outline:"none", width:"100%", fontFamily:"inherit", boxSizing:"border-box",
+  };
+
+  const cells = [
+    {
+      id:"value", label:"예상 수주 금액", color:C.accent, editable:true,
+      display: fmt(opp.value),
+      input: <input type="text" value={val} onChange={e=>setVal(e.target.value.replace(/[^0-9]/g,""))} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle} placeholder="금액 (원)"/>,
+    },
+    {
+      id:"weighted", label:"가중 매출", color:C.purple, editable:false,
+      display: fmt(weighted),
+    },
+    {
+      id:"probability", label:"성공 확률", color:stageCfg.color, editable:true,
+      display: `${opp.probability}%`,
+      input: <input type="number" min="0" max="100" value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={{...inputStyle, width:80}} placeholder="0~100"/>,
+    },
+    {
+      id:"closeDate", label:"예상 계약일", editable:true,
+      color: isLate(opp.closeDate)&&opp.stage!=="계약완료" ? C.red : C.textMuted,
+      display: opp.closeDate||"—",
+      input: <input type="date" value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle}/>,
+    },
+    {
+      id:"competitors", label:"경쟁사", color:C.textMuted, editable:false,
+      display: opp.competitors||"—",
+    },
+  ];
+
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
+      {cells.map(cell=>(
+        <div key={cell.id}
+          onClick={()=>cell.editable&&editing!==cell.id&&startEdit(cell.id, cell.id==="closeDate"?opp.closeDate:cell.id==="probability"?opp.probability:opp.value)}
+          style={{ background:C.surfaceUp, borderRadius:10, padding:"12px 14px", cursor:cell.editable?"pointer":"default", position:"relative", transition:"box-shadow .15s", border:`1px solid ${editing===cell.id?C.accent:"transparent"}` }}
+          onMouseEnter={e=>{ if(cell.editable) e.currentTarget.style.boxShadow=`0 0 0 1px ${C.accentGlow}`; }}
+          onMouseLeave={e=>{ e.currentTarget.style.boxShadow="none"; }}
+        >
+          <div style={{ display:"flex", alignItems:"center", gap:4, marginBottom:6 }}>
+            <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>{cell.label}</div>
+            {cell.editable && editing!==cell.id && <span style={{ fontSize:9, color:C.textDim }}>✏</span>}
+          </div>
+          {editing===cell.id ? (
+            <div onClick={e=>e.stopPropagation()}>
+              {cell.input}
+              <div style={{ display:"flex", gap:4, marginTop:6 }}>
+                <button onClick={save} style={{ flex:1, padding:"3px", background:C.accent, color:"#fff", border:"none", borderRadius:4, fontSize:10, cursor:"pointer", fontWeight:700 }}>저장</button>
+                <button onClick={()=>setEditing(null)} style={{ flex:1, padding:"3px", background:C.border, color:C.textMuted, border:"none", borderRadius:4, fontSize:10, cursor:"pointer" }}>취소</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize:cell.id==="competitors"?12:16, fontWeight:700, color:cell.color, lineHeight:1.3 }}>{cell.display}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ── Strategy Editor ───────────────────────────────────────────────────────────
@@ -491,19 +594,10 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         {opp.stage==="손실"&&<div style={{ marginTop:8, fontSize:12, color:C.red, fontWeight:600 }}>⚠ 이 영업기회는 손실 처리되었습니다</div>}
       </div>
 
-      {/* KPI grid */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
-        {[
-          { label:"예상 금액",   val:fmt(opp.value),   color:C.accent   },
-          { label:"가중 매출",   val:fmt(weighted),    color:C.purple   },
-          { label:"성공 확률",   val:`${opp.probability}%`, color:stageCfg.color },
-          { label:"예상 계약일", val:opp.closeDate||"—", color:isLate(opp.closeDate)&&opp.stage!=="계약완료"?C.red:C.textMuted },
-          { label:"경쟁사",      val:opp.competitors||"—", color:C.textMuted },
-        ].map(it=><div key={it.label} style={{ background:C.surfaceUp, borderRadius:10, padding:"12px 14px" }}>
-          <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>{it.label}</div>
-          <div style={{ fontSize:it.label==="경쟁사"?12:16, fontWeight:700, color:it.color, lineHeight:1.3 }}>{it.val}</div>
-        </div>)}
-      </div>
+      {/* KPI grid — 예상 금액/확률/계약일 인라인 수정 가능 */}
+      {(()=>{
+        return <KpiGrid opp={opp} stageCfg={stageCfg} weighted={weighted} onUpdate={update}/>;
+      })()}
 
       {/* Next step banner */}
       {opp.nextStep&&<div style={{ marginTop:14, background:`${stageCfg.color}12`, border:`1px solid ${stageCfg.color}30`, borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:12 }}>
