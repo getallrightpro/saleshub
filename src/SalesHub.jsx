@@ -386,7 +386,7 @@ function StrategyEditor({ value, stageColor, tips, onSave, onCancel }) {
 }
 
 // ── Opportunity Detail Page ───────────────────────────────────────────────────
-function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive, isAdmin, onDelete }) {
+function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive, isAdmin, onDelete, onNavigateToClient }) {
   const [subTab, setSubTab]   = useState("overview");
   const [actModal, setAM]     = useState(null);
   const [fileModal, setFM]    = useState(false);
@@ -426,6 +426,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     { id:"activities",label:"활동 기록",     count:opp.activities.length   },
     { id:"files",     label:"파일",          count:opp.files.length        },
     { id:"actions",   label:"액션",          count:oppActions.filter(a=>!a.done).length },
+    { id:"news",      label:"📰 뉴스"       },
   ];
 
   return <div>
@@ -441,7 +442,20 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
         <div>
           <div style={{ fontSize:22, fontWeight:900, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{opp.name}</div>
-          <div style={{ fontSize:13, color:C.textMuted }}>{account.name} · {account.industry} · {opp.owner} 담당</div>
+          <div style={{ fontSize:13, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>
+            {/* 고객사 클릭 → 고객사 DB로 이동 */}
+            {account.name && onNavigateToClient ? (
+              <button onClick={()=>onNavigateToClient(account)} style={{ background:"none", border:"none", cursor:"pointer", padding:0, fontFamily:"inherit", fontSize:13, color:C.accent, fontWeight:600, textDecoration:"underline", textUnderlineOffset:2 }}>
+                🏢 {account.name}
+              </button>
+            ) : (
+              <span>{account.name}</span>
+            )}
+            <span>·</span>
+            <span>{account.industry}</span>
+            <span>·</span>
+            <span>{opp.owner} 담당</span>
+          </div>
         </div>
         <div style={{ display:"flex", gap:10, alignItems:"center" }}>
           {opp.stage!=="계약완료"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
@@ -746,6 +760,13 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       })}
     </div>}
 
+    {subTab==="news" && (
+      <ClientNewsMonitor
+        client={account}
+        industry={account.industry}
+      />
+    )}
+
     {actModal&&<ActivityModal act={actModal==="new"?null:actModal} onSave={saveAct} onClose={()=>setAM(null)}/>}
     {fileModal&&<FileModal2 onSave={saveFile} onClose={()=>setFM(false)}/>}
     {stageModal&&<StageMoveModal opp={opp} onSave={handleStageMove} onClose={()=>setSM(false)}/>}
@@ -869,7 +890,7 @@ function OppListView({ opps, clients, onSelect }) {
 }
 
 // ── Pipeline Main ─────────────────────────────────────────────────────────────
-function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin }) {
+function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin, onNavigateToClient }) {
   const [pipeTab, setPipeTab]   = useState("pipeline");
   const [view, setView]         = useState("kanban");
   const [selected, setSelected] = useState(initialTarget || null);
@@ -882,7 +903,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
   }, [initialTarget]);
 
-  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); }}/>;
+  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); }} onNavigateToClient={onNavigateToClient}/>;
 
   const owners = ["전체",...new Set(opps.map(o=>o.owner))];
   const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="계약완료"&&o.stage!=="손실":stageFilter==="계약완료"?o.stage==="계약완료":stageFilter==="손실"?o.stage==="손실":true);
@@ -1515,7 +1536,7 @@ function ClientNewsMonitor({ client, industry }) {
   );
 }
 
-function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
+function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeline }) {
   const data=db[client.id]||{bizNo:"",address:"",size:"",founded:"",website:"",note:"",contacts:[],history:[],files:[]};
   const [subTab,setST]=useState("info");
   const [cModal,setCM]=useState(null);
@@ -1615,10 +1636,17 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
       <div style={{ display:"grid", gap:8 }}>
         {clientOpps.map(o=>{
           const s=STAGE_MAP[o.stage]||{};
-          return <div key={o.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:16 }}>
-            <div style={{ flex:1 }}><div style={{ fontSize:14, fontWeight:700, color:C.text }}>{o.name}</div><div style={{ fontSize:12, color:C.textMuted }}>{o.owner} · {o.closeDate}</div></div>
+          return <div key={o.id} onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)}
+            style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:16, cursor:onNavigateToPipeline?"pointer":"default", transition:"border-color .15s, box-shadow .15s" }}
+            onMouseEnter={e=>{if(onNavigateToPipeline){e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.boxShadow=`0 0 0 1px ${C.accentGlow}`;}}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow="none";}}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{o.name}</div>
+              <div style={{ fontSize:12, color:C.textMuted }}>{o.owner} · {o.closeDate}</div>
+            </div>
             <StagePill stage={o.stage}/>
             <span style={{ fontSize:15, fontWeight:800, color:s.color }}>{fmt(o.value)}</span>
+            {onNavigateToPipeline && <span style={{ fontSize:12, color:C.accent }}>→</span>}
           </div>;
         })}
       </div>
@@ -1649,15 +1677,19 @@ function ClientFormModal({ client, onSave, onClose }) {
   </Modal>;
 }
 
-function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClients, archivedDb, onArchiveClient, onRestoreClient, isAdmin }) {
-  const [selected,   setSelected] = useState(null);
+function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClients, archivedDb, onArchiveClient, onRestoreClient, isAdmin, onNavigateToPipeline, initialClient, onClearClient }) {
+  const [selected,   setSelected] = useState(initialClient || null);
   const [search,     setSearch]   = useState("");
   const [indFilter,  setInd]      = useState("전체");
   const [modal,      setModal]    = useState(null);
   const [clientTab,  setCTab]     = useState("active");
   const [archSearch, setAS]       = useState("");
 
-  if (selected) return <ClientDetail client={selected} db={db} onUpdateDb={onUpdateDb} onBack={()=>setSelected(null)} opps={opps}/>;
+  useEffect(() => {
+    if (initialClient) { setSelected(initialClient); onClearClient && onClearClient(); }
+  }, [initialClient]);
+
+  if (selected) return <ClientDetail client={selected} db={db} onUpdateDb={onUpdateDb} onBack={()=>setSelected(null)} opps={opps} onNavigateToPipeline={onNavigateToPipeline}/>;
 
   const industries = ["전체", ...new Set(clients.map(c => c.industry).filter(Boolean))];
   const list = clients
@@ -3823,8 +3855,19 @@ function App() {
   const [meetings, sMt]   = useState(INIT_MEETINGS);
   const [actions, sAc]    = useState(INIT_ACTIONS);
   const [goals, sGoals]   = useState(INIT_GOALS);
-  const [searchTarget, setST] = useState(null);
-  const [revEditOpp, setRE]   = useState(null);
+  const [searchTarget, setST]   = useState(null);
+  const [clientTarget, setCT]   = useState(null); // client to jump to in clientdb
+  const [revEditOpp, setRE]     = useState(null);
+
+  // ── 탭 간 네비게이션 ──
+  const handleNavigateToClient = (client) => {
+    setCT(client);
+    sT("clientdb");
+  };
+  const handleNavigateToPipeline = (opp) => {
+    setST(opp);
+    sT("pipeline");
+  };
   const [dbReady, setDbReady] = useState(false);
   const [saving, setSaving]   = useState(false);
 
@@ -4008,9 +4051,9 @@ function App() {
 
     <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px" }}>
       {tab==="dashboard"&&<Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients}/>}
-      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin}/>}
+      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin} onNavigateToClient={handleNavigateToClient}/>}
       {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={saveGoals} onEditRevDate={o=>setRE(o)}/>}
-      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps} archivedClients={archivedClients} archivedDb={archivedDb} onArchiveClient={archiveClient} onRestoreClient={restoreClient} isAdmin={isAdmin}/>}
+      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps} archivedClients={archivedClients} archivedDb={archivedDb} onArchiveClient={archiveClient} onRestoreClient={restoreClient} isAdmin={isAdmin} onNavigateToPipeline={handleNavigateToPipeline} initialClient={clientTarget} onClearClient={()=>setCT(null)}/>}
       {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={saveActions} onUpdateOpps={saveOpps}/>}
     </div>
     {revEditOpp && <RevDateEditModal opp={revEditOpp} onClose={()=>setRE(null)}
