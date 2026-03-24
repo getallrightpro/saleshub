@@ -183,6 +183,74 @@ function TabBar({ tabs, active, onChange }) {
 // ─── PIPELINE ─────────────────────────────────────────────────────────────────
 
 // Opportunity Form Modal
+function ClientSearchInput({ clients, value, onChange }) {
+  const [query,  setQuery]  = useState("");
+  const [open,   setOpen]   = useState(false);
+  const [focused,setFocus]  = useState(false);
+
+  const selected = clients.find(c => String(c.id) === String(value));
+  const filtered = clients.filter(c =>
+    !query || c.name.toLowerCase().includes(query.toLowerCase()) ||
+    (c.industry||"").toLowerCase().includes(query.toLowerCase()) ||
+    (c.owner||"").toLowerCase().includes(query.toLowerCase())
+  ).slice(0, 8);
+
+  const handleSelect = (c) => {
+    onChange(c.id);
+    setQuery("");
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ position:"relative", marginBottom:16 }}>
+      <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사</label>
+      {/* Input box */}
+      <div style={{ display:"flex", alignItems:"center", background:C.surfaceUp, border:`1px solid ${focused?C.accent:C.border}`, borderRadius:8, padding:"10px 14px", gap:8, transition:"border-color .15s" }}>
+        <span style={{ fontSize:13, color:C.textMuted }}>🔍</span>
+        <input
+          value={open ? query : (selected?.name || "")}
+          onChange={e=>{ setQuery(e.target.value); setOpen(true); }}
+          onFocus={()=>{ setFocus(true); setOpen(true); setQuery(""); }}
+          onBlur={()=>{ setFocus(false); setTimeout(()=>setOpen(false), 150); }}
+          placeholder="고객사명 검색..."
+          style={{ background:"none", border:"none", outline:"none", fontSize:14, color:C.text, width:"100%", fontFamily:"inherit" }}
+        />
+        {selected && !open && (
+          <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"2px 8px", borderRadius:8, fontWeight:700, flexShrink:0 }}>
+            {selected.industry}
+          </span>
+        )}
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:300, overflow:"hidden" }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding:"16px", textAlign:"center", fontSize:13, color:C.textMuted }}>검색 결과 없음</div>
+          ) : (
+            filtered.map(c => (
+              <div key={c.id} onMouseDown={()=>handleSelect(c)}
+                style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", cursor:"pointer", borderBottom:`1px solid ${C.border}`, background: String(c.id)===String(value) ? C.accentSoft : "transparent" }}
+                onMouseEnter={e=>e.currentTarget.style.background=C.surfaceUp}
+                onMouseLeave={e=>e.currentTarget.style.background=String(c.id)===String(value)?C.accentSoft:"transparent"}
+              >
+                <div style={{ width:30, height:30, borderRadius:8, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.accent, flexShrink:0 }}>
+                  {c.name[0]}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{c.name}</div>
+                  <div style={{ fontSize:11, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
+                </div>
+                {String(c.id)===String(value) && <span style={{ fontSize:12, color:C.accent }}>✓</span>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OppFormModal({ opp, clients, onSave, onClose }) {
   const blank = { name:"", accountId:clients[0]?.id||"", owner:"", stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
   const [f,sF] = useState(opp ? { ...opp, value:String(opp.value) } : blank);
@@ -191,7 +259,10 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
   return <Modal title={opp?"영업기회 수정":"영업기회 추가"} onClose={onClose}>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <div style={{ gridColumn:"1/-1" }}><Inp label="영업기회명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자 2025 소재 공급"/></div>
-      <Sel label="고객사" value={f.accountId} onChange={v=>sF(p=>({...p,accountId:Number(v)||v}))} options={clients.map(c=>({value:c.id,label:c.name}))}/>
+      {/* 고객사 검색 */}
+      <div style={{ gridColumn:"1/-1" }}>
+        <ClientSearchInput clients={clients} value={f.accountId} onChange={v=>sF(p=>({...p,accountId:v}))}/>
+      </div>
       <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
       <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)}))}/>
@@ -234,13 +305,16 @@ function StageMoveModal({ opp, onSave, onClose }) {
 
 // Activity Modal
 function ActivityModal({ act, onSave, onClose }) {
-  const [f,sF]=useState(act||{date:today(),type:"방문미팅",content:"",by:""});
+  const [f,sF]=useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
   const s=k=>v=>sF(p=>({...p,[k]:v}));
   return <Modal title={act?"활동 수정":"활동 기록"} onClose={onClose}>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
       <Sel label="유형" value={f.type} onChange={s("type")} options={ACT_TYPES}/>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="내용" value={f.content} onChange={s("content")} multiline placeholder="활동 내용을 상세히 기록하세요"/></div>
+      <div style={{ gridColumn:"1/-1" }}><Inp label="활동 내용" value={f.content} onChange={s("content")} multiline placeholder="미팅 내용, 논의 사항 등을 기록하세요"/></div>
+      <div style={{ gridColumn:"1/-1" }}>
+        <Inp label="고객사 요청사항" value={f.clientRequest||""} onChange={s("clientRequest")} multiline placeholder="고객사에서 요청한 사항, 질문, 피드백 등을 기록하세요 (선택)"/>
+      </div>
       <Inp label="담당자" value={f.by} onChange={s("by")}/>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
@@ -391,6 +465,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         <Inp label="다음 액션 일정" type="date" value={editForm.nextStepDate} onChange={v=>setEF(p=>({...p,nextStepDate:v}))}/>
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
         <Inp label="영업 전략 메모" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
+        <Inp label="고객 요구사항 / Spec" value={editForm.clientRequirements||""} onChange={v=>setEF(p=>({...p,clientRequirements:v}))} multiline placeholder="고객사의 기술 스펙, 납기 조건, 예산, 기타 요구사항을 상세히 기록하세요"/>
         <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>취소</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>저장</Btn></div>
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
@@ -404,11 +479,26 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <div style={{ fontSize:13, color:it.val?C.text:C.textDim }}>{it.val||"—"}</div>
           </div>)}
         </div>
+
+        {/* 고객 요구사항 / Spec */}
+        <div style={{ background:`${C.yellow}0D`, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>📋 고객 요구사항 / Spec</div>
+          </div>
+          {opp.clientRequirements ? (
+            <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{opp.clientRequirements}</div>
+          ) : (
+            <div style={{ fontSize:13, color:C.textDim, fontStyle:"italic" }}>아직 기록된 요구사항이 없습니다. 수정 버튼을 눌러 추가하세요.</div>
+          )}
+        </div>
+
+        {/* 영업 전략 메모 */}
         <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>영업 전략 메모</div>
+          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>💡 영업 전략 메모</div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
-        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors});setEdit(true);}}>✏ 수정</Btn>
+
+        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||""});setEdit(true);}}>✏ 수정</Btn>
       </div>}
     </div>}
 
@@ -489,6 +579,12 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             </div>
           </div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>{a.content}</div>
+          {a.clientRequest && (
+            <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
+              <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
+              <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{a.clientRequest}</div>
+            </div>
+          )}
         </div>
       </div>)}
     </div>}
