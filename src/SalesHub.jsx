@@ -341,14 +341,60 @@ function FileModal2({ onSave, onClose }) {
   </Modal>;
 }
 
+// ── Strategy Editor ───────────────────────────────────────────────────────────
+function StrategyEditor({ value, stageColor, tips, onSave, onCancel }) {
+  const [text, setText] = useState(value || "");
+
+  const applyTip = (tip) => {
+    setText(prev => prev ? `${prev}\n• ${tip}` : `• ${tip}`);
+  };
+
+  return (
+    <div>
+      {/* Quick insert from tips */}
+      <div style={{ marginBottom:10 }}>
+        <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>추천 전략에서 빠르게 추가:</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {tips.map((tip,i)=>(
+            <button key={i} onClick={()=>applyTip(tip)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${stageColor}30`, background:`${stageColor}08`, color:stageColor, fontSize:11, cursor:"pointer", fontWeight:500, textAlign:"left" }}>
+              + {tip.length > 24 ? tip.slice(0,24)+"…" : tip}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Text area */}
+      <textarea
+        value={text}
+        onChange={e=>setText(e.target.value)}
+        placeholder={`이 단계에서의 구체적인 영업 전략을 작성하세요.\n\n예:\n• 핵심 결정권자 집중 공략\n• 경쟁사 대비 우리의 강점 강조\n• 주간 팔로우업 일정 수립`}
+        autoFocus
+        style={{
+          width:"100%", minHeight:160, background:C.surfaceUp,
+          border:`1.5px solid ${stageColor}`, borderRadius:10,
+          padding:"12px 14px", color:C.text, fontSize:13,
+          lineHeight:1.8, outline:"none", resize:"vertical",
+          fontFamily:"inherit", boxSizing:"border-box",
+        }}
+      />
+      <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:10 }}>
+        <Btn variant="ghost" size="sm" onClick={onCancel}>취소</Btn>
+        <Btn size="sm" onClick={()=>onSave(text)}>저장</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── Opportunity Detail Page ───────────────────────────────────────────────────
 function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive, isAdmin, onDelete }) {
-  const [subTab, setSubTab] = useState("overview");
-  const [actModal, setAM]   = useState(null);
-  const [fileModal, setFM]  = useState(false);
-  const [stageModal, setSM] = useState(false);
-  const [editing, setEdit]  = useState(false);
-  const [editForm, setEF]   = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors });
+  const [subTab, setSubTab]   = useState("overview");
+  const [actModal, setAM]     = useState(null);
+  const [fileModal, setFM]    = useState(false);
+  const [stageModal, setSM]   = useState(false);
+  const [editing, setEdit]    = useState(false);
+  const [editForm, setEF]     = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors });
+  const [editingStage, setES] = useState(null);   // which stage is being edited
+  const [showTips, setShowTips] = useState({});    // which stages show default tips
 
   const account   = clients.find(c=>c.id===opp.accountId)||{};
   const stageCfg  = STAGE_MAP[opp.stage]||{};
@@ -504,27 +550,101 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
     {/* ── 단계별 전략 ── */}
     {subTab==="strategy"&&<div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-        {STAGES.map(s=>{
-          const strat = STAGE_STRATEGY[s.id];
-          const isActive = s.id===opp.stage;
+      {/* 안내 배너 */}
+      <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"12px 16px", marginBottom:20, display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:16 }}>💡</span>
+        <div style={{ fontSize:13, color:C.accent, lineHeight:1.6 }}>
+          각 단계별로 <strong>우리 팀만의 영업 전략</strong>을 직접 작성하세요. 처음 시작할 때는 <strong>추천 전략 보기</strong>를 참고하실 수 있습니다.
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gap:16 }}>
+        {STAGES.filter(s=>s.id!=="손실").map(s=>{
+          const strat     = STAGE_STRATEGY[s.id];
+          const isActive  = s.id === opp.stage;
           const histEntry = [...opp.stageHistory].reverse().find(h=>h.stage===s.id);
-          return <div key={s.id} style={{ background:isActive?`${s.color}10`:C.surface, border:`1px solid ${isActive?s.color:C.border}`, borderRadius:12, padding:"18px 20px", position:"relative" }}>
-            {isActive&&<div style={{ position:"absolute", top:12, right:12, fontSize:10, background:`${s.color}25`, color:s.color, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>현재 단계</div>}
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-              <span style={{ fontSize:18 }}>{strat?.icon}</span>
-              <span style={{ fontSize:14, fontWeight:800, color:isActive?s.color:C.text }}>{s.label}</span>
-              <span style={{ fontSize:11, color:C.textMuted, marginLeft:"auto" }}>목표 확률 {s.prob}%</span>
+          const customStrat = (opp.stageStrategies||{})[s.id] || "";
+          const isEditing   = editingStage === s.id;
+          const tipsOpen    = showTips[s.id];
+
+          return (
+            <div key={s.id} style={{ background:isActive?`${s.color}08`:C.surface, border:`1.5px solid ${isActive?s.color:C.border}`, borderRadius:14, padding:"20px 22px", position:"relative" }}>
+
+              {/* Stage header */}
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:`${s.color}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                  {strat?.icon}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:15, fontWeight:800, color:isActive?s.color:C.text }}>{s.label}</span>
+                    {isActive && <span style={{ fontSize:10, background:`${s.color}20`, color:s.color, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>현재 단계</span>}
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>목표 확률 {s.prob}% {histEntry?`· 진입: ${histEntry.date}`:""}</div>
+                </div>
+                <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                  {/* 추천 전략 토글 */}
+                  <button onClick={()=>setShowTips(p=>({...p,[s.id]:!p[s.id]}))} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                    {tipsOpen ? "추천 접기 ▲" : "추천 전략 ▼"}
+                  </button>
+                  {/* 편집 버튼 */}
+                  {!isEditing && (
+                    <button onClick={()=>setES(s.id)} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${isActive?s.color:C.border}`, background:isActive?`${s.color}10`:"transparent", color:isActive?s.color:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                      ✏ {customStrat?"수정":"작성"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 추천 전략 (접을 수 있음) */}
+              {tipsOpen && (
+                <div style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>📌 추천 전략 (참고용)</div>
+                  <ul style={{ margin:0, padding:0, listStyle:"none", display:"grid", gap:6 }}>
+                    {strat?.tips.map((tip,i)=>(
+                      <li key={i} style={{ display:"flex", gap:8, fontSize:12, color:C.textMuted }}>
+                        <span style={{ color:s.color, flexShrink:0, fontWeight:700 }}>›</span>
+                        <span style={{ lineHeight:1.6 }}>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 담당자 작성 전략 */}
+              {isEditing ? (
+                <div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>우리 팀 전략 작성</div>
+                  <StrategyEditor
+                    value={customStrat}
+                    stageColor={s.color}
+                    tips={strat?.tips||[]}
+                    onSave={val=>{
+                      update({ stageStrategies:{ ...(opp.stageStrategies||{}), [s.id]:val } });
+                      setES(null);
+                    }}
+                    onCancel={()=>setES(null)}
+                  />
+                </div>
+              ) : (
+                <div>
+                  {customStrat ? (
+                    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px" }}>
+                      <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>✍ 우리 팀 전략</div>
+                      <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{customStrat}</div>
+                    </div>
+                  ) : (
+                    <div style={{ border:`1.5px dashed ${C.border}`, borderRadius:10, padding:"20px", textAlign:"center" }}>
+                      <div style={{ fontSize:13, color:C.textDim, marginBottom:8 }}>아직 작성된 전략이 없습니다</div>
+                      <button onClick={()=>setES(s.id)} style={{ padding:"6px 16px", borderRadius:8, border:`1px solid ${s.color}`, background:`${s.color}10`, color:s.color, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                        + 전략 작성하기
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <ul style={{ margin:0, padding:"0 0 0 16px", listStyle:"none" }}>
-              {strat?.tips.map((tip,i)=><li key={i} style={{ fontSize:12, color:isActive?C.text:C.textMuted, marginBottom:6, display:"flex", gap:6 }}>
-                <span style={{ color:isActive?s.color:C.textDim, flexShrink:0 }}>›</span>{tip}
-              </li>)}
-            </ul>
-            {histEntry&&<div style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}`, fontSize:11, color:C.textMuted }}>
-              <span style={{ color:C.textDim }}>기록: </span>{histEntry.date} — {histEntry.note}
-            </div>}
-          </div>;
+          );
         })}
       </div>
     </div>}
@@ -1204,6 +1324,197 @@ function DBFileModal({ onSave, onClose }) {
   </Modal>;
 }
 
+// ─── CLIENT NEWS MONITOR ─────────────────────────────────────────────────────
+function ClientNewsMonitor({ client, industry }) {
+  const [news,       setNews]    = useState(null);   // { summary, articles, salesTips }
+  const [loading,    setLoading] = useState(false);
+  const [lastFetched,setLF]      = useState(null);
+  const [category,   setCat]     = useState("전체"); // 전체 | 경영 | 재무 | 산업 | ESG
+
+  const fetchNews = async () => {
+    setLoading(true);
+    setNews(null);
+
+    const prompt = `당신은 영업 인텔리전스 전문가입니다.
+"${client.name}" (업종: ${industry||client.industry||"일반"})에 대해 최근 동향을 분석해주세요.
+
+웹 검색을 통해 다음을 조사하고 영업 담당자에게 유용한 형식으로 정리해주세요:
+
+1. 최근 주요 뉴스 및 이슈 (최근 3개월 기준)
+2. 경영/재무 동향 (투자, 실적, 조직 변화 등)
+3. 산업/시장 동향 (시장 트렌드, 규제 변화 등)
+4. 영업 기회 포인트 (이 뉴스가 우리 영업에 어떤 의미인지)
+
+반드시 아래 JSON 형식으로만 답변하세요. 다른 텍스트 없이 JSON만 출력하세요:
+{
+  "summary": "2~3줄 핵심 요약",
+  "articles": [
+    {
+      "category": "경영|재무|산업|ESG 중 하나",
+      "title": "뉴스 제목",
+      "content": "2~3줄 내용 요약",
+      "date": "YYYY-MM 또는 최근",
+      "impact": "high|medium|low",
+      "impactDesc": "영업 관점에서의 의미"
+    }
+  ],
+  "salesTips": [
+    "이 고객사에 접근할 때 활용할 수 있는 구체적인 영업 포인트 1",
+    "영업 포인트 2",
+    "영업 포인트 3"
+  ],
+  "lastUpdated": "${new Date().toISOString().slice(0,10)}"
+}`;
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:2000,
+          tools:[{ type:"web_search_20250305", name:"web_search" }],
+          messages:[{ role:"user", content:prompt }]
+        })
+      });
+      const data = await res.json();
+      const text = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("") || "";
+      const clean = text.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(clean);
+      setNews(parsed);
+      setLF(new Date().toLocaleString("ko-KR"));
+    } catch(e) {
+      setNews({ error: true, summary:"뉴스를 불러오는 데 실패했습니다. 다시 시도해주세요." });
+    }
+    setLoading(false);
+  };
+
+  const impactColor = { high:C.red, medium:C.yellow, low:C.green };
+  const impactLabel = { high:"높음", medium:"중간", low:"낮음" };
+  const categories  = ["전체","경영","재무","산업","ESG"];
+
+  const filtered = news?.articles?.filter(a => category==="전체" || a.category===category) || [];
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:4 }}>
+            📰 {client.name} 뉴스 모니터링
+          </div>
+          <div style={{ fontSize:12, color:C.textMuted }}>
+            AI가 웹을 검색하여 최신 동향과 영업 인사이트를 제공합니다
+            {lastFetched && <span style={{ marginLeft:10, color:C.textDim }}>마지막 업데이트: {lastFetched}</span>}
+          </div>
+        </div>
+        <Btn onClick={fetchNews} style={{ minWidth:120 }}>
+          {loading ? "검색 중..." : news ? "🔄 새로고침" : "🔍 뉴스 검색"}
+        </Btn>
+      </div>
+
+      {/* Initial state */}
+      {!news && !loading && (
+        <Card style={{ textAlign:"center", padding:"60px 32px" }}>
+          <div style={{ fontSize:40, marginBottom:16 }}>📰</div>
+          <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:8 }}>{client.name} 최신 동향을 검색해보세요</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginBottom:24, lineHeight:1.7 }}>
+            AI가 실시간으로 웹을 검색하여<br/>
+            경영·재무·산업 동향과 영업 포인트를 정리해드립니다
+          </div>
+          <Btn onClick={fetchNews}>🔍 지금 검색하기</Btn>
+        </Card>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <Card style={{ textAlign:"center", padding:"60px 32px" }}>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
+            <div style={{ width:40, height:40, border:`3px solid ${C.border}`, borderTop:`3px solid ${C.accent}`, borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
+            <div style={{ fontSize:15, fontWeight:600, color:C.text }}>AI가 웹을 검색 중입니다...</div>
+            <div style={{ fontSize:13, color:C.textMuted }}>최신 뉴스와 영업 인사이트를 분석하고 있습니다</div>
+          </div>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </Card>
+      )}
+
+      {/* Error */}
+      {news?.error && (
+        <Card style={{ textAlign:"center", padding:"40px 32px" }}>
+          <div style={{ fontSize:13, color:C.red }}>{news.summary}</div>
+        </Card>
+      )}
+
+      {/* Results */}
+      {news && !news.error && !loading && (
+        <div style={{ display:"grid", gap:16 }}>
+
+          {/* Summary card */}
+          <Card style={{ background:`${C.accent}08`, border:`1px solid ${C.accentGlow}` }}>
+            <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>핵심 요약</div>
+            <div style={{ fontSize:14, color:C.text, lineHeight:1.8 }}>{news.summary}</div>
+          </Card>
+
+          {/* Sales tips */}
+          {news.salesTips?.length > 0 && (
+            <Card style={{ background:`${C.green}08`, border:`1px solid ${C.green}25` }}>
+              <div style={{ fontSize:11, color:C.green, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>💼 영업 활용 포인트</div>
+              <div style={{ display:"grid", gap:8 }}>
+                {news.salesTips.map((tip,i)=>(
+                  <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                    <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:C.green, flexShrink:0 }}>{i+1}</div>
+                    <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{tip}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Category filter */}
+          <div style={{ display:"flex", gap:8 }}>
+            {categories.map(cat=>(
+              <button key={cat} onClick={()=>setCat(cat)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${category===cat?C.accent:C.border}`, background:category===cat?C.accentSoft:"transparent", color:category===cat?C.accent:C.textMuted, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                {cat} {cat!=="전체"&&news.articles?.filter(a=>a.category===cat).length > 0 ? `(${news.articles.filter(a=>a.category===cat).length})` : ""}
+              </button>
+            ))}
+          </div>
+
+          {/* Articles */}
+          <div style={{ display:"grid", gap:12 }}>
+            {filtered.length===0 && <div style={{ textAlign:"center", padding:"32px 0", color:C.textMuted }}>해당 카테고리 뉴스가 없습니다</div>}
+            {filtered.map((article,i)=>{
+              const ic = impactColor[article.impact] || C.textMuted;
+              return (
+                <Card key={i} style={{ padding:"18px 20px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                      <span style={{ fontSize:11, background:`${ic}15`, color:ic, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>
+                        영향도 {impactLabel[article.impact]||"—"}
+                      </span>
+                      <span style={{ fontSize:11, background:C.surfaceUp, color:C.textMuted, padding:"2px 9px", borderRadius:10, fontWeight:600, border:`1px solid ${C.border}` }}>
+                        {article.category}
+                      </span>
+                      {article.date && <span style={{ fontSize:11, color:C.textDim }}>{article.date}</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:8, lineHeight:1.5 }}>{article.title}</div>
+                  <div style={{ fontSize:13, color:C.textMuted, lineHeight:1.7, marginBottom:10 }}>{article.content}</div>
+                  {article.impactDesc && (
+                    <div style={{ display:"flex", gap:8, padding:"8px 12px", background:C.surfaceUp, borderRadius:8, borderLeft:`3px solid ${ic}` }}>
+                      <span style={{ fontSize:11, color:ic, fontWeight:700, flexShrink:0 }}>영업 시사점</span>
+                      <span style={{ fontSize:12, color:C.text }}>{article.impactDesc}</span>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
   const data=db[client.id]||{bizNo:"",address:"",size:"",founded:"",website:"",note:"",contacts:[],history:[],files:[]};
   const [subTab,setST]=useState("info");
@@ -1214,7 +1525,14 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
   const [form,setForm]=useState({bizNo:data.bizNo,address:data.address,size:data.size,founded:data.founded,website:data.website,note:data.note});
   const update=patch=>onUpdateDb(prev=>({...prev,[client.id]:{...data,...patch}}));
   const clientOpps=opps.filter(o=>o.accountId===client.id);
-  const subTabs=[{id:"info",label:"기본 정보"},{id:"contacts",label:`담당자 (${data.contacts.length})`},{id:"history",label:`히스토리 (${data.history.length})`},{id:"files",label:`파일 (${data.files.length})`},{id:"opps",label:`영업기회 (${clientOpps.length})`}];
+  const subTabs=[
+    {id:"info",    label:"기본 정보"},
+    {id:"contacts",label:`담당자 (${data.contacts.length})`},
+    {id:"history", label:`히스토리 (${data.history.length})`},
+    {id:"files",   label:`파일 (${data.files.length})`},
+    {id:"opps",    label:`영업기회 (${clientOpps.length})`},
+    {id:"news",    label:"📰 뉴스 모니터링"},
+  ];
   return <div>
     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:24 }}>
       <button onClick={onBack} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, padding:0, fontFamily:"inherit" }}>← 고객사 DB</button>
@@ -1305,6 +1623,9 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps }) {
         })}
       </div>
     </div>}
+
+    {subTab==="news"&&<ClientNewsMonitor client={client} industry={data.industry||client.industry}/>}
+
     {cModal&&<ContactModal contact={cModal==="new"?null:cModal} contacts={data.contacts} onSave={c=>{const ex=data.contacts.find(x=>x.id===c.id);update({contacts:ex?data.contacts.map(x=>x.id===c.id?c:x):[...data.contacts,c]});setCM(null);}} onClose={()=>setCM(null)}/>}
     {hModal&&<DBHistoryModal item={hModal==="new"?null:hModal} onSave={h=>{const ex=data.history.find(x=>x.id===h.id);const list=ex?data.history.map(x=>x.id===h.id?h:x):[...data.history,h];update({history:list.sort((a,b)=>b.date.localeCompare(a.date))});setHM(null);}} onClose={()=>setHM(null)}/>}
     {fModal&&<DBFileModal onSave={f=>{update({files:[...data.files,f]});setFM(false);}} onClose={()=>setFM(false)}/>}
