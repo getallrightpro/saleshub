@@ -53,34 +53,43 @@ const sbPing = async () => {
   } catch { return false; }
 };
 
-// ─── Design Tokens (Light Theme) ───────────────────────────────────────────
+// ─── Design Tokens ───────────────────────────────────────────────────────────
+// 원칙: 파란색 하나가 포인트. 나머지는 의미가 있을 때만 색상 사용.
 const C = {
-  bg:"#F1F5F9", surface:"#FFFFFF", surfaceUp:"#F8FAFC", border:"#E2E8F0",
-  accent:"#3B6FE8", accentSoft:"rgba(59,111,232,0.08)", accentGlow:"rgba(59,111,232,0.20)",
-  green:"#10B981", greenSoft:"rgba(16,185,129,0.09)",
-  yellow:"#F59E0B", yellowSoft:"rgba(245,158,11,0.10)",
-  red:"#EF4444", redSoft:"rgba(239,68,68,0.09)",
-  purple:"#8B5CF6", purpleSoft:"rgba(139,92,246,0.09)",
-  cyan:"#0891B2", cyanSoft:"rgba(8,145,178,0.09)",
-  text:"#1E293B", textMuted:"#64748B", textDim:"#94A3B8",
+  bg:"#F4F5F7", surface:"#FFFFFF", surfaceUp:"#F8F9FB", border:"#E4E6EA",
+
+  // 포인트 컬러 — 버튼, 링크, 강조 (하나만)
+  accent:"#2563EB", accentSoft:"rgba(37,99,235,0.07)", accentGlow:"rgba(37,99,235,0.18)",
+
+  // 시맨틱 — 의미 있을 때만
+  green:"#16A34A", greenSoft:"rgba(22,163,74,0.08)",
+  yellow:"#D97706", yellowSoft:"rgba(217,119,6,0.08)",
+  red:"#DC2626",   redSoft:"rgba(220,38,38,0.08)",
+
+  // 레거시 호환 (기존 purple/cyan 참조하는 곳 → 회색으로)
+  purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
+  cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
+
+  // 텍스트
+  text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
 };
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id:"리드",     label:"리드",      prob:10,  color:"#64748B" },
-  { id:"초기접촉", label:"초기 접촉", prob:20,  color:"#0891B2" },
-  { id:"니즈파악", label:"니즈 파악", prob:35,  color:"#F59E0B" },
-  { id:"제안",     label:"제안",      prob:55,  color:"#3B6FE8" },
-  { id:"협상",     label:"협상",      prob:75,  color:"#8B5CF6" },
-  { id:"계약완료", label:"계약완료",  prob:100, color:"#10B981" },
-  { id:"손실",     label:"손실",      prob:0,   color:"#EF4444" },
+  { id:"리드",     label:"리드",      prob:10,  color:"#9CA3AF" }, // 회색 — 아직 시작 전
+  { id:"초기접촉", label:"초기 접촉", prob:20,  color:"#6B7280" }, // 짙은 회색
+  { id:"니즈파악", label:"니즈 파악", prob:35,  color:"#3B82F6" }, // 파란색 시작
+  { id:"제안",     label:"제안",      prob:55,  color:"#2563EB" }, // 강한 파란
+  { id:"협상",     label:"협상",      prob:75,  color:"#1D4ED8" }, // 가장 짙은 파란
+  { id:"계약완료", label:"계약완료",  prob:100, color:"#16A34A" }, // 초록 — 성공
+  { id:"손실",     label:"손실",      prob:0,   color:"#DC2626" }, // 빨강 — 실패
 ];
 // ─── Business Units ──────────────────────────────────────────────────────────
 const BUSINESS_UNITS = [
-  { id:"산업용S/G",        color:"#3B6FE8" },
-  { id:"2차전지/반도체EPC", color:"#8B5CF6" },
-  { id:"리튬소재",          color:"#10B981" },
-  { id:"신사업",            color:"#F59E0B" },
+  { id:"산업용S/G",        color:"#1D4ED8" }, // 딥 블루
+  { id:"2차전지/반도체EPC", color:"#374151" }, // 차콜 그레이
+  { id:"리튬소재",          color:"#065F46" }, // 딥 그린
+  { id:"신사업",            color:"#92400E" }, // 딥 앰버
 ];
 const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
@@ -96,7 +105,7 @@ const STAGE_STRATEGY = {
 };
 
 const ACT_TYPES = ["방문미팅","전화통화","화상회의","이메일","식사미팅","제안발표","협상미팅","계약서검토","기타"];
-const PRI_CFG   = { "높음":C.red, "중간":C.yellow, "낮음":C.green };
+const PRI_CFG   = { "높음":C.red, "중간":"#D97706", "낮음":C.textMuted };
 const FILE_TYPES= ["제안서","계약서","견적서","기술자료","기타"];
 const FILE_CLR  = { "제안서":C.accent,"계약서":C.green,"견적서":C.yellow,"기술자료":C.purple,"기타":C.textMuted };
 const FILE_ICO  = { "제안서":"📄","계약서":"📋","견적서":"💰","기술자료":"🔬","기타":"📁" };
@@ -466,9 +475,10 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
         <select value={val} onChange={e=>setVal(e.target.value)} onBlur={save} autoFocus
           style={{...inputStyle, fontSize:12}}>
           <option value="">— 선택 —</option>
-          {approvedUsers.map(u=>(
-            <option key={u.email} value={u.name||u.email}>{u.name||u.email}</option>
-          ))}
+          {approvedUsers.map(u=>{
+            const displayName = (u.name && u.name !== u.email) ? u.name : u.email.split("@")[0];
+            return <option key={u.email} value={displayName}>{displayName}</option>;
+          })}
         </select>
       ) : (
         <input value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle} placeholder="담당자 이름"/>
@@ -3847,18 +3857,25 @@ function AuthenticatedApp() {
     if (!isAuthenticated || !email) return;
     (async () => {
       try {
-        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}&select=email,approved,role`, { headers:sbHeaders });
+        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}&select=email,approved,role,name`, { headers:sbHeaders });
         const rows = await res.json();
         if (rows.length > 0 && rows[0].approved) {
+          // 이름이 이메일로 저장되어 있으면 실제 이름으로 업데이트
+          if (name && rows[0].name === email) {
+            await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}`, {
+              method:"PATCH", headers:sbHeaders,
+              body: JSON.stringify({ name }),
+            });
+          }
           setStatus("approved");
         } else if (rows.length > 0 && !rows[0].approved) {
           setStatus("pending");
         } else {
-          // First time — auto-register as pending
+          // First time — Microsoft 계정 실제 이름으로 등록
           await fetch(`${SB_URL}/rest/v1/allowed_users`, {
             method:"POST",
             headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
-            body: JSON.stringify({ email, name: email, role:"member", approved:false }),
+            body: JSON.stringify({ email, name: name || email, role:"member", approved:false }),
           });
           setStatus("pending");
         }
@@ -3926,6 +3943,46 @@ function AccessDeniedPage() {
 }
 
 // ─── ADMIN PANEL ──────────────────────────────────────────────────────────────
+// 이름 인라인 편집 컴포넌트
+function NameEditor({ email, currentName, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal]         = useState(currentName);
+  const [saving, setSaving]   = useState(false);
+
+  const save = async () => {
+    if (!val.trim()) return;
+    setSaving(true);
+    await fetch(`${SB_URL}/rest/v1/allowed_users?email=eq.${encodeURIComponent(email)}`, {
+      method:"PATCH", headers:sbHeaders,
+      body: JSON.stringify({ name: val.trim() }),
+    });
+    onSaved(val.trim());
+    setEditing(false);
+    setSaving(false);
+  };
+
+  if (editing) return (
+    <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:2 }}>
+      <input value={val} onChange={e=>setVal(e.target.value)}
+        onKeyDown={e=>{ if(e.key==="Enter") save(); if(e.key==="Escape") setEditing(false); }}
+        autoFocus
+        style={{ background:C.surfaceUp, border:`1px solid ${C.accent}`, borderRadius:6, padding:"3px 8px", color:C.text, fontSize:13, fontWeight:700, outline:"none", width:130 }}
+      />
+      <button onClick={save} disabled={saving} style={{ padding:"3px 10px", background:C.accent, color:"#fff", border:"none", borderRadius:6, fontSize:11, cursor:"pointer", fontWeight:700 }}>저장</button>
+      <button onClick={()=>setEditing(false)} style={{ padding:"3px 8px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:6, fontSize:11, cursor:"pointer" }}>취소</button>
+    </div>
+  );
+
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+      <span style={{ fontSize:13, fontWeight:700, color:currentName?C.text:C.textDim }}>
+        {currentName || "이름 미설정"}
+      </span>
+      <button onClick={()=>{ setVal(currentName); setEditing(true); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textDim, fontSize:11, padding:0 }}>✏</button>
+    </div>
+  );
+}
+
 function AdminPanel({ onClose }) {
   const [users, setUsers]   = useState([]);
   const [loading, setLoad]  = useState(true);
@@ -4001,15 +4058,19 @@ function AdminPanel({ onClose }) {
           </div>
         )}
         <div style={{ display:"grid", gap:10 }}>
-          {filtered.map(u => (
+          {filtered.map(u => {
+            const displayName = (u.name && u.name !== u.email) ? u.name : "";
+            return (
             <div key={u.email} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12 }}>
               {/* Avatar */}
               <div style={{ width:40, height:40, borderRadius:"50%", background:u.approved?C.greenSoft:C.yellowSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:800, color:u.approved?C.green:C.yellow, flexShrink:0 }}>
-                {(u.name||u.email)[0].toUpperCase()}
+                {(displayName||u.email)[0].toUpperCase()}
               </div>
-              {/* Info */}
+              {/* Info — 이름 인라인 편집 */}
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{u.name || "—"}</div>
+                <NameEditor email={u.email} currentName={displayName} onSaved={newName=>{
+                  setUsers(prev=>prev.map(x=>x.email===u.email?{...x,name:newName}:x));
+                }}/>
                 <div style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</div>
                 <div style={{ fontSize:10, color:C.textDim, marginTop:1 }}>가입: {u.added_at?.slice(0,10)}</div>
               </div>
@@ -4031,7 +4092,7 @@ function AdminPanel({ onClose }) {
                 )}
               </div>
             </div>
-          ))}
+          );})}
         </div>
 
         {/* Refresh */}
