@@ -284,9 +284,21 @@ function ClientSearchInput({ clients, value, onChange }) {
 
 function OppFormModal({ opp, clients, onSave, onClose }) {
   const blank = { name:"", accountId:clients[0]?.id||"", owner:"", businessUnit:BUSINESS_UNITS[0].id, stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
-  const [f,sF] = useState(opp ? { ...opp, value:String(opp.value) } : blank);
+  const [f,sF]       = useState(opp ? { ...opp, value:String(opp.value) } : blank);
+  const [users, setUsers] = useState([]);
   const s=k=>v=>sF(p=>({...p,[k]:v}));
   const handleStageChange = (stage) => { sF(p=>({...p, stage, probability:STAGE_MAP[stage]?.prob||p.probability})); };
+
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?approved=eq.true&select=email,name`, { headers:sbHeaders });
+        const rows = await res.json();
+        if (Array.isArray(rows)) setUsers(rows);
+      } catch(e){}
+    })();
+  },[]);
+
   return <Modal title={opp?"영업기회 수정":"영업기회 추가"} onClose={onClose}>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <div style={{ gridColumn:"1/-1" }}><Inp label="영업기회명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자 2025 소재 공급"/></div>
@@ -294,7 +306,21 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
       <div style={{ gridColumn:"1/-1" }}>
         <ClientSearchInput clients={clients} value={f.accountId} onChange={v=>sF(p=>({...p,accountId:v}))}/>
       </div>
-      <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
+      {/* 담당자 — 승인된 사용자 드롭다운 */}
+      <div style={{ marginBottom:16 }}>
+        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자</label>
+        {users.length > 0 ? (
+          <select value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+            <option value="">— 선택 —</option>
+            {users.map(u=>{
+              const displayName = (u.name && u.name !== u.email) ? u.name : u.email.split("@")[0];
+              return <option key={u.email} value={displayName}>{displayName}</option>;
+            })}
+          </select>
+        ) : (
+          <input value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} placeholder="담당자 이름" style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
+        )}
+      </div>
       <Sel label="사업부" value={f.businessUnit||BUSINESS_UNITS[0].id} onChange={s("businessUnit")} options={BUSINESS_UNITS.map(b=>({value:b.id,label:b.id}))}/>
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
       <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)||0}))}/>
@@ -577,8 +603,10 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const [stageModal, setSM]   = useState(false);
   const [editing, setEdit]    = useState(false);
   const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"" });
-  const [editingStage, setES] = useState(null);   // which stage is being edited
-  const [showTips, setShowTips] = useState({});    // which stages show default tips
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleVal,     setTitleVal]     = useState(opp.name);
+  const [editingStage, setES]           = useState(null);
+  const [showTips,     setShowTips]     = useState({});
 
   const account   = clients.find(c=>c.id===opp.accountId)||{};
   const stageCfg  = STAGE_MAP[opp.stage]||{};
@@ -625,7 +653,28 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:"26px 30px", marginBottom:24, boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
         <div>
-          <div style={{ fontSize:22, fontWeight:900, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{opp.name}</div>
+          {/* 타이틀 인라인 편집 */}
+          {editingTitle ? (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <input
+                value={titleVal}
+                onChange={e=>setTitleVal(e.target.value)}
+                onKeyDown={e=>{
+                  if(e.key==="Enter"){ update({name:titleVal}); setEditingTitle(false); }
+                  if(e.key==="Escape"){ setTitleVal(opp.name); setEditingTitle(false); }
+                }}
+                autoFocus
+                style={{ fontSize:20, fontWeight:900, color:C.text, background:"#fff", border:`1.5px solid ${C.accent}`, borderRadius:8, padding:"6px 12px", outline:"none", fontFamily:"inherit", width:420, letterSpacing:"-.02em" }}
+              />
+              <button onClick={()=>{ update({name:titleVal}); setEditingTitle(false); }} style={{ padding:"6px 14px", background:C.accent, color:"#fff", border:"none", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>저장</button>
+              <button onClick={()=>{ setTitleVal(opp.name); setEditingTitle(false); }} style={{ padding:"6px 12px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:7, fontSize:12, cursor:"pointer" }}>취소</button>
+            </div>
+          ) : (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+              <div style={{ fontSize:22, fontWeight:900, color:C.text, letterSpacing:"-.02em" }}>{opp.name}</div>
+              <button onClick={()=>{ setTitleVal(opp.name); setEditingTitle(true); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textDim, fontSize:13, padding:"2px 4px", borderRadius:4 }} title="제목 수정">✏</button>
+            </div>
+          )}
           <div style={{ fontSize:13, color:C.textMuted, display:"flex", alignItems:"center", gap:6 }}>
             {/* 고객사 클릭 → 고객사 DB로 이동 */}
             {account.name && onNavigateToClient ? (
@@ -641,7 +690,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <span>{opp.owner} 담당</span>
           </div>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+        <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
           {opp.stage!=="계약완료"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
           {opp.stage==="계약완료"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 계약완료</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
