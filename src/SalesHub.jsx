@@ -378,8 +378,20 @@ function FileModal2({ onSave, onClose }) {
 
 // ── KPI Grid (인라인 편집 가능) ───────────────────────────────────────────────
 function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
-  const [editing, setEditing] = useState(null); // "value" | "probability" | "closeDate" | null
+  const [editing, setEditing] = useState(null);
   const [val, setVal]         = useState("");
+  const [approvedUsers, setUsers] = useState([]);
+
+  // allowed_users에서 승인된 사용자 목록 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const res  = await fetch(`${SB_URL}/rest/v1/allowed_users?approved=eq.true&select=email,name`, { headers:sbHeaders });
+        const rows = await res.json();
+        if (Array.isArray(rows)) setUsers(rows);
+      } catch(e) {}
+    })();
+  }, []);
 
   const startEdit = (field, current) => {
     setEditing(field);
@@ -388,13 +400,15 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
 
   const save = () => {
     if (editing === "value") {
-      const num = parseInt(String(val).replace(/[^0-9]/g,""), 10) || 0;
-      onUpdate({ value: num });
+      onUpdate({ value: parseInt(String(val).replace(/[^0-9]/g,""),10)||0 });
     } else if (editing === "probability") {
-      const num = Math.min(100, Math.max(0, parseInt(val)||0));
-      onUpdate({ probability: num });
+      onUpdate({ probability: Math.min(100,Math.max(0,parseInt(val)||0)) });
     } else if (editing === "closeDate") {
       onUpdate({ closeDate: val });
+    } else if (editing === "businessUnit") {
+      onUpdate({ businessUnit: val });
+    } else if (editing === "owner") {
+      onUpdate({ owner: val });
     }
     setEditing(null);
   };
@@ -406,9 +420,11 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
 
   const inputStyle = {
     background:"#fff", border:`1.5px solid ${C.accent}`, borderRadius:6,
-    padding:"4px 8px", color:C.text, fontSize:15, fontWeight:700,
+    padding:"4px 8px", color:C.text, fontSize:14, fontWeight:700,
     outline:"none", width:"100%", fontFamily:"inherit", boxSizing:"border-box",
   };
+
+  const buCfg = BUSINESS_UNITS.find(b=>b.id===opp.businessUnit);
 
   const cells = [
     {
@@ -432,37 +448,69 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
       input: <input type="date" value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle}/>,
     },
     {
-      id:"competitors", label:"경쟁사", color:C.textMuted, editable:false,
-      display: opp.competitors||"—",
+      id:"businessUnit", label:"사업부", editable:true,
+      color: buCfg?.color || C.textMuted,
+      display: opp.businessUnit||"—",
+      input: (
+        <select value={val} onChange={e=>setVal(e.target.value)} onBlur={save} autoFocus
+          style={{...inputStyle, fontSize:12}}>
+          {BUSINESS_UNITS.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}
+        </select>
+      ),
+    },
+    {
+      id:"owner", label:"담당자", editable:true,
+      color: C.text,
+      display: opp.owner||"—",
+      input: approvedUsers.length > 0 ? (
+        <select value={val} onChange={e=>setVal(e.target.value)} onBlur={save} autoFocus
+          style={{...inputStyle, fontSize:12}}>
+          <option value="">— 선택 —</option>
+          {approvedUsers.map(u=>(
+            <option key={u.email} value={u.name||u.email}>{u.name||u.email}</option>
+          ))}
+        </select>
+      ) : (
+        <input value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle} placeholder="담당자 이름"/>
+      ),
     },
   ];
 
   return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
-      {cells.map(cell=>(
-        <div key={cell.id}
-          onClick={()=>cell.editable&&editing!==cell.id&&startEdit(cell.id, cell.id==="closeDate"?opp.closeDate:cell.id==="probability"?opp.probability:opp.value)}
-          style={{ background:C.surfaceUp, borderRadius:10, padding:"12px 14px", cursor:cell.editable?"pointer":"default", position:"relative", transition:"box-shadow .15s", border:`1px solid ${editing===cell.id?C.accent:"transparent"}` }}
-          onMouseEnter={e=>{ if(cell.editable) e.currentTarget.style.boxShadow=`0 0 0 1px ${C.accentGlow}`; }}
-          onMouseLeave={e=>{ e.currentTarget.style.boxShadow="none"; }}
-        >
-          <div style={{ display:"flex", alignItems:"center", gap:4, marginBottom:6 }}>
-            <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>{cell.label}</div>
-            {cell.editable && editing!==cell.id && <span style={{ fontSize:9, color:C.textDim }}>✏</span>}
-          </div>
-          {editing===cell.id ? (
-            <div onClick={e=>e.stopPropagation()}>
-              {cell.input}
-              <div style={{ display:"flex", gap:4, marginTop:6 }}>
-                <button onClick={save} style={{ flex:1, padding:"3px", background:C.accent, color:"#fff", border:"none", borderRadius:4, fontSize:10, cursor:"pointer", fontWeight:700 }}>저장</button>
-                <button onClick={()=>setEditing(null)} style={{ flex:1, padding:"3px", background:C.border, color:C.textMuted, border:"none", borderRadius:4, fontSize:10, cursor:"pointer" }}>취소</button>
-              </div>
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:12 }}>
+      {cells.map(cell=>{
+        const isBU = cell.id==="businessUnit";
+        const buColor = isBU ? BUSINESS_UNITS.find(b=>b.id===opp.businessUnit)?.color : null;
+        return (
+          <div key={cell.id}
+            onClick={()=>cell.editable&&editing!==cell.id&&startEdit(cell.id,
+              cell.id==="closeDate"?opp.closeDate:
+              cell.id==="probability"?opp.probability:
+              cell.id==="businessUnit"?opp.businessUnit:
+              cell.id==="owner"?opp.owner:
+              opp.value)}
+            style={{ background:isBU&&buColor?`${buColor}10`:C.surfaceUp, borderRadius:10, padding:"12px 14px", cursor:cell.editable?"pointer":"default", transition:"box-shadow .15s", border:`1px solid ${editing===cell.id?C.accent:isBU&&buColor?buColor+"30":"transparent"}` }}
+            onMouseEnter={e=>{ if(cell.editable) e.currentTarget.style.boxShadow=`0 0 0 1px ${C.accentGlow}`; }}
+            onMouseLeave={e=>{ e.currentTarget.style.boxShadow="none"; }}
+          >
+            <div style={{ display:"flex", alignItems:"center", gap:4, marginBottom:6 }}>
+              <div style={{ fontSize:10, color:isBU&&buColor?buColor:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>{cell.label}</div>
+              {cell.editable && editing!==cell.id && <span style={{ fontSize:9, color:C.textDim }}>✏</span>}
             </div>
-          ) : (
-            <div style={{ fontSize:cell.id==="competitors"?12:16, fontWeight:700, color:cell.color, lineHeight:1.3 }}>{cell.display}</div>
-          )}
-        </div>
-      ))}
+            {editing===cell.id ? (
+              <div onClick={e=>e.stopPropagation()}>
+                {cell.input}
+                <div style={{ display:"flex", gap:4, marginTop:6 }}>
+                  <button onClick={save} style={{ flex:1, padding:"3px", background:C.accent, color:"#fff", border:"none", borderRadius:4, fontSize:10, cursor:"pointer", fontWeight:700 }}>저장</button>
+                  <button onClick={()=>setEditing(null)} style={{ flex:1, padding:"3px", background:C.border, color:C.textMuted, border:"none", borderRadius:4, fontSize:10, cursor:"pointer" }}>취소</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize:cell.id==="owner"||isBU?13:16, fontWeight:700, color:isBU&&buColor?buColor:cell.color, lineHeight:1.3 }}>{cell.display}</div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
