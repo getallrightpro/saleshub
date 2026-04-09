@@ -82,6 +82,7 @@ const BUSINESS_UNITS = [
   { id:"리튬소재",          color:"#10B981" },
   { id:"신사업",            color:"#F59E0B" },
 ];
+const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
 
 const STAGE_STRATEGY = {
