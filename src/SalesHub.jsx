@@ -24,18 +24,33 @@ const sbHeaders = { "Content-Type":"application/json", "apikey":SB_KEY, "Authori
 
 // Generic Supabase helpers
 const sbGet = async (table) => {
-  const res = await fetch(`${SB_URL}/rest/v1/${table}?select=*`, { headers:sbHeaders });
-  return res.ok ? res.json() : [];
+  const res = await fetch(`${SB_URL}/rest/v1/${table}?select=*&order=updated_at.asc`, { headers:sbHeaders });
+  if (!res.ok) {
+    const err = await res.text().catch(()=>"");
+    throw new Error(`[${table}] ${res.status}: ${err}`);
+  }
+  return res.json();
 };
 const sbUpsert = async (table, id, data) => {
-  await fetch(`${SB_URL}/rest/v1/${table}`, {
+  const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
     method:"POST",
     headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
     body: JSON.stringify({ id, data }),
   });
+  if (!res.ok) {
+    const err = await res.text().catch(()=>"");
+    console.error(`[sbUpsert:${table}] ${res.status}: ${err}`);
+  }
 };
 const sbDelete = async (table, id) => {
   await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method:"DELETE", headers:sbHeaders });
+};
+// 연결 상태 확인
+const sbPing = async () => {
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/opps?select=id&limit=1`, { headers:sbHeaders });
+    return res.ok;
+  } catch { return false; }
 };
 
 // ─── Design Tokens (Light Theme) ───────────────────────────────────────────
@@ -60,7 +75,13 @@ const STAGES = [
   { id:"계약완료", label:"계약완료",  prob:100, color:"#10B981" },
   { id:"손실",     label:"손실",      prob:0,   color:"#EF4444" },
 ];
-const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
+// ─── Business Units ──────────────────────────────────────────────────────────
+const BUSINESS_UNITS = [
+  { id:"산업용S/G",        color:"#3B6FE8" },
+  { id:"2차전지/반도체EPC", color:"#8B5CF6" },
+  { id:"리튬소재",          color:"#10B981" },
+  { id:"신사업",            color:"#F59E0B" },
+];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
 
 const STAGE_STRATEGY = {
@@ -252,7 +273,7 @@ function ClientSearchInput({ clients, value, onChange }) {
 }
 
 function OppFormModal({ opp, clients, onSave, onClose }) {
-  const blank = { name:"", accountId:clients[0]?.id||"", owner:"", stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
+  const blank = { name:"", accountId:clients[0]?.id||"", owner:"", businessUnit:BUSINESS_UNITS[0].id, stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
   const [f,sF] = useState(opp ? { ...opp, value:String(opp.value) } : blank);
   const s=k=>v=>sF(p=>({...p,[k]:v}));
   const handleStageChange = (stage) => { sF(p=>({...p, stage, probability:STAGE_MAP[stage]?.prob||p.probability})); };
@@ -264,6 +285,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
         <ClientSearchInput clients={clients} value={f.accountId} onChange={v=>sF(p=>({...p,accountId:v}))}/>
       </div>
       <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
+      <Sel label="사업부" value={f.businessUnit||BUSINESS_UNITS[0].id} onChange={s("businessUnit")} options={BUSINESS_UNITS.map(b=>({value:b.id,label:b.id}))}/>
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
       <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)||0}))}/>
       <Inp label="예상 금액 (원)" type="number" value={f.value} onChange={v=>sF(p=>({...p,value:v.replace(/[^0-9]/g,"")}))} placeholder="숫자만 입력 (예: 100000000)"/>
@@ -495,7 +517,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const [fileModal, setFM]    = useState(false);
   const [stageModal, setSM]   = useState(false);
   const [editing, setEdit]    = useState(false);
-  const [editForm, setEF]     = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors });
+  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"" });
   const [editingStage, setES] = useState(null);   // which stage is being edited
   const [showTips, setShowTips] = useState({});    // which stages show default tips
 
@@ -615,6 +637,15 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     {/* ── 개요 ── */}
     {subTab==="overview"&&<div>
       {editing?<div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+          <div style={{ marginBottom:16 }}>
+            <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>사업부</label>
+            <select value={editForm.businessUnit} onChange={e=>setEF(p=>({...p,businessUnit:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+              {BUSINESS_UNITS.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}
+            </select>
+          </div>
+          <Inp label="담당자" value={editForm.owner} onChange={v=>setEF(p=>({...p,owner:v}))}/>
+        </div>
         <Inp label="다음 액션" value={editForm.nextStep} onChange={v=>setEF(p=>({...p,nextStep:v}))}/>
         <Inp label="다음 액션 일정" type="date" value={editForm.nextStepDate} onChange={v=>setEF(p=>({...p,nextStepDate:v}))}/>
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
@@ -624,14 +655,17 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           {[
+            { label:"사업부",     val:opp.businessUnit, isBU:true },
             { label:"영업 소스",  val:opp.source      },
             { label:"고객사",     val:account.name    },
-            { label:"업종",       val:account.industry},
             { label:"담당자",     val:opp.owner       },
-          ].map(it=><div key={it.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>
-            <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
-            <div style={{ fontSize:13, color:it.val?C.text:C.textDim }}>{it.val||"—"}</div>
-          </div>)}
+          ].map(it=>{
+            const buCfg = it.isBU ? BUSINESS_UNITS.find(b=>b.id===it.val) : null;
+            return <div key={it.label} style={{ background:buCfg?`${buCfg.color}10`:C.surface, border:`1px solid ${buCfg?buCfg.color+"40":C.border}`, borderRadius:10, padding:"12px 16px" }}>
+              <div style={{ fontSize:10, color:buCfg?buCfg.color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
+              <div style={{ fontSize:13, fontWeight:buCfg?700:400, color:buCfg?buCfg.color:it.val?C.text:C.textDim }}>{it.val||"—"}</div>
+            </div>;
+          })}
         </div>
 
         {/* 고객 요구사항 / Spec */}
@@ -652,7 +686,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
-        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||""});setEdit(true);}}>✏ 수정</Btn>
+        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||""});setEdit(true);}}>✏ 수정</Btn>
       </div>}
     </div>}
 
@@ -942,7 +976,13 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                   onClick={()=>onSelect(o)}
                   style={{ background:C.surface, border:`1px solid ${dragging?.id===o.id?stage.color:C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", transition:"box-shadow .15s, border-color .15s", boxShadow:"0 1px 3px rgba(0,0,0,.07)", opacity:dragging?.id===o.id?.5:1 }}>
                   <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:4, lineHeight:1.3 }}>{o.name}</div>
-                  <div style={{ fontSize:11, color:C.textMuted, marginBottom:10 }}>{acc.name}</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:11, color:C.textMuted }}>{acc.name}</span>
+                    {o.businessUnit&&(()=>{
+                      const bu=BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
+                      return bu?<span style={{ fontSize:10, background:`${bu.color}18`, color:bu.color, padding:"1px 6px", borderRadius:6, fontWeight:700 }}>{bu.id}</span>:null;
+                    })()}
+                  </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                     <span style={{ fontSize:14, fontWeight:800, color:stage.color }}>{fmt(o.value)}</span>
                     <span style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</span>
@@ -987,7 +1027,13 @@ function OppListView({ opps, clients, onSelect }) {
       return <Card key={o.id} onClick={()=>onSelect(o)} style={{ display:"grid", gridTemplateColumns:"2.5fr 1fr 1fr 1.2fr 1.4fr 1fr", alignItems:"center", gap:16, padding:"14px 20px" }}>
         <div>
           <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{o.name}</div>
-          <div style={{ fontSize:12, color:C.textMuted }}>{acc.name} · {o.owner}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+            <span style={{ fontSize:12, color:C.textMuted }}>{acc.name} · {o.owner}</span>
+            {o.businessUnit && (()=>{
+              const bu = BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
+              return bu ? <span style={{ fontSize:10, background:`${bu.color}15`, color:bu.color, padding:"1px 7px", borderRadius:8, fontWeight:700 }}>{bu.id}</span> : null;
+            })()}
+          </div>
         </div>
         <StagePill stage={o.stage}/>
         <div>
@@ -1014,9 +1060,10 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
   const [view, setView]         = useState("kanban");
   const [selected, setSelected] = useState(initialTarget || null);
   const [addModal, setAddModal] = useState(false);
-  const [ownerFilter, setOwner] = useState("전체");
-  const [stageFilter, setStage] = useState("활성");
-  const [archSearch, setAS]     = useState("");
+  const [ownerFilter,  setOwner] = useState("전체");
+  const [stageFilter,  setStage] = useState("활성");
+  const [buFilter,     setBU]    = useState("전체"); // 사업부 필터
+  const [archSearch,   setAS]    = useState("");
 
   useEffect(() => {
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
@@ -1024,9 +1071,11 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
 
   if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); }} onNavigateToClient={onNavigateToClient}/>;
 
-  const owners = ["전체",...new Set(opps.map(o=>o.owner))];
+  const owners    = ["전체",...new Set(opps.map(o=>o.owner).filter(Boolean))];
   const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="계약완료"&&o.stage!=="손실":stageFilter==="계약완료"?o.stage==="계약완료":stageFilter==="손실"?o.stage==="손실":true);
-  const filtered = activeOpps.filter(o=>ownerFilter==="전체"||o.owner===ownerFilter);
+  const filtered  = activeOpps
+    .filter(o=>ownerFilter==="전체"||o.owner===ownerFilter)
+    .filter(o=>buFilter==="전체"||o.businessUnit===buFilter);
 
   const allActive  = opps.filter(o=>o.stage!=="계약완료"&&o.stage!=="손실");
   const totalPipe  = allActive.reduce((s,o)=>s+o.value,0);
@@ -1055,7 +1104,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
     {/* ── 영업기회 보드 ── */}
     {pipeTab==="pipeline" && <div>
       {/* Metrics row */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:16 }}>
         {[
           { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent  },
           { label:"가중 예상 매출",  val:fmt(weighted),   sub:"확률 반영",                color:C.purple  },
@@ -1066,6 +1115,39 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
           <div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div>
           <div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div>
         </Card>)}
+      </div>
+
+      {/* 사업부별 지표 */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+        {BUSINESS_UNITS.map(bu=>{
+          const buOpps    = opps.filter(o=>o.businessUnit===bu.id&&o.stage!=="손실");
+          const buActive  = buOpps.filter(o=>o.stage!=="계약완료");
+          const buWon     = buOpps.filter(o=>o.stage==="계약완료");
+          const buPipe    = buActive.reduce((s,o)=>s+o.value,0);
+          const buWonVal  = buWon.reduce((s,o)=>s+o.value,0);
+          const isSelected = buFilter===bu.id;
+          return (
+            <div key={bu.id} onClick={()=>setBU(isSelected?"전체":bu.id)}
+              style={{ background:isSelected?`${bu.color}10`:C.surface, border:`1.5px solid ${isSelected?bu.color:C.border}`, borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all .15s" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", background:bu.color }}/>
+                <span style={{ fontSize:12, fontWeight:700, color:isSelected?bu.color:C.text }}>{bu.id}</span>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <div>
+                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
+                  <div style={{ fontSize:13, fontWeight:800, color:bu.color }}>{fmt(buPipe)}</div>
+                  <div style={{ fontSize:10, color:C.textMuted }}>{buActive.length}건</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>계약완료</div>
+                  <div style={{ fontSize:13, fontWeight:800, color:C.green }}>{fmt(buWonVal)}</div>
+                  <div style={{ fontSize:10, color:C.textMuted }}>{buWon.length}건</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Stage funnel bar */}
@@ -1091,7 +1173,10 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, gap:12 }}>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {["활성","계약완료","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{f}</button>)}
-          <span style={{ width:1, background:C.border }}/>
+          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
+          {/* 사업부 필터 */}
+          {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>전체 사업부</button>}
+          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
           {owners.map(o=><button key={o} onClick={()=>setOwner(o)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${ownerFilter===o?C.yellow:C.border}`, background:ownerFilter===o?C.yellowSoft:"transparent", color:ownerFilter===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{o}</button>)}
         </div>
         <div style={{ display:"flex", gap:8 }}>
@@ -3999,27 +4084,39 @@ function App() {
     sT("pipeline");
   };
   const [dbReady, setDbReady] = useState(false);
-  const [saving, setSaving]   = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const [dbError, setDbError] = useState(""); // DB 에러 메시지
 
   // ── Load from Supabase on mount ──
   useEffect(() => {
     (async () => {
-      try {
-        const [oppRows, dbRows, meetRows, actRows, goalRows, archRows, clRows, aclRows, adbRows] = await Promise.all([
-          sbGet("opps"), sbGet("clients_db"), sbGet("meetings"),
-          sbGet("actions"), sbGet("goals"), sbGet("archived_opps"),
-          sbGet("clients"), sbGet("archived_clients"), sbGet("archived_clients_db"),
-        ]);
-        if (oppRows.length)  sO(oppRows.map(r=>r.data));
-        if (dbRows.length)   sDb(Object.fromEntries(dbRows.map(r=>[r.id, r.data])));
-        if (meetRows.length) sMt(meetRows.map(r=>r.data));
-        if (actRows.length)  sAc(actRows.map(r=>r.data));
-        if (goalRows.length) sGoals(goalRows[0]?.data || INIT_GOALS);
-        if (archRows.length) sArch(archRows.map(r=>r.data));
-        if (clRows.length)   sCl(clRows.map(r=>r.data));
-        if (aclRows.length)  sACl(aclRows.map(r=>r.data));
-        if (adbRows.length)  sADb(Object.fromEntries(adbRows.map(r=>[r.id, r.data])));
-      } catch(e) { console.warn("DB load failed, using local data", e); }
+      // 1. 연결 확인
+      const connected = await sbPing();
+      if (!connected) {
+        setDbError("Supabase 연결 실패 — 프로젝트가 일시정지 상태일 수 있습니다. supabase.com에서 확인해주세요.");
+        setDbReady(true);
+        return;
+      }
+
+      // 2. 데이터 로드 (테이블별 개별 처리 — 하나 실패해도 나머지 로드)
+      const load = async (table) => { try { return await sbGet(table); } catch(e) { console.error(e); return []; } };
+
+      const [oppRows, dbRows, meetRows, actRows, goalRows, archRows, clRows, aclRows, adbRows] = await Promise.all([
+        load("opps"), load("clients_db"), load("meetings"),
+        load("actions"), load("goals"), load("archived_opps"),
+        load("clients"), load("archived_clients"), load("archived_clients_db"),
+      ]);
+
+      if (oppRows.length)  sO(oppRows.map(r=>r.data));
+      if (dbRows.length)   sDb(Object.fromEntries(dbRows.map(r=>[r.id, r.data])));
+      if (meetRows.length) sMt(meetRows.map(r=>r.data));
+      if (actRows.length)  sAc(actRows.map(r=>r.data));
+      if (goalRows.length) sGoals(goalRows[0]?.data || INIT_GOALS);
+      if (archRows.length) sArch(archRows.map(r=>r.data));
+      if (clRows.length)   sCl(clRows.map(r=>r.data));
+      if (aclRows.length)  sACl(aclRows.map(r=>r.data));
+      if (adbRows.length)  sADb(Object.fromEntries(adbRows.map(r=>[r.id, r.data])));
+
       setDbReady(true);
     })();
   }, []);
@@ -4166,10 +4263,16 @@ function App() {
           {!dbReady && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.yellow, display:"inline-block" }}/>데이터 로딩 중...
           </span>}
-          {dbReady && saving && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+          {dbReady && dbError && (
+            <span style={{ fontSize:11, color:C.red, display:"flex", alignItems:"center", gap:5, cursor:"pointer", maxWidth:200 }} title={dbError}>
+              <span style={{ width:6, height:6, borderRadius:"50%", background:C.red, display:"inline-block", flexShrink:0 }}/>
+              DB 연결 오류 — <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" style={{ color:C.red, fontWeight:700 }}>확인하기</a>
+            </span>
+          )}
+          {dbReady && !dbError && saving && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.accent, display:"inline-block" }}/>저장 중...
           </span>}
-          {dbReady && !saving && <span style={{ fontSize:11, color:C.green, display:"flex", alignItems:"center", gap:5 }}>
+          {dbReady && !dbError && !saving && <span style={{ fontSize:11, color:C.green, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>저장됨
           </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
