@@ -32,6 +32,10 @@ const sbGet = async (table) => {
   return res.json();
 };
 const sbUpsert = async (table, id, data) => {
+  if (!id || data === null || data === undefined) {
+    console.warn(`[sbUpsert:${table}] id 또는 data가 없어 저장 건너뜀`, { id, data });
+    return;
+  }
   const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
     method:"POST",
     headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
@@ -76,13 +80,14 @@ const C = {
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id:"리드",     label:"리드",      prob:10,  color:"#9CA3AF" }, // 회색 — 아직 시작 전
-  { id:"초기접촉", label:"초기 접촉", prob:20,  color:"#6B7280" }, // 짙은 회색
-  { id:"니즈파악", label:"니즈 파악", prob:35,  color:"#3B82F6" }, // 파란색 시작
-  { id:"제안",     label:"제안",      prob:55,  color:"#2563EB" }, // 강한 파란
-  { id:"협상",     label:"협상",      prob:75,  color:"#1D4ED8" }, // 가장 짙은 파란
-  { id:"계약완료", label:"계약완료",  prob:100, color:"#16A34A" }, // 초록 — 성공
-  { id:"손실",     label:"손실",      prob:0,   color:"#DC2626" }, // 빨강 — 실패
+  { id:"리드",         label:"리드",         prob:5,   color:"#9CA3AF" },
+  { id:"초기접촉",     label:"초기접촉",     prob:15,  color:"#6B7280" },
+  { id:"기술협의",     label:"기술협의",     prob:30,  color:"#3B82F6" },
+  { id:"초도견적",     label:"초도견적",     prob:45,  color:"#2563EB" },
+  { id:"재견적",       label:"재견적",       prob:60,  color:"#1E40AF" },
+  { id:"견적검토/협상",label:"견적검토/협상",prob:80,  color:"#1D4ED8" },
+  { id:"수주확정",     label:"수주확정",     prob:100, color:"#16A34A" },
+  { id:"손실",         label:"손실",         prob:0,   color:"#DC2626" },
 ];
 // ─── Business Units ──────────────────────────────────────────────────────────
 const BUSINESS_UNITS = [
@@ -92,16 +97,46 @@ const BUSINESS_UNITS = [
   { id:"신사업",            color:"#92400E" }, // 딥 앰버
 ];
 const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
+
+// ─── 영업기회 유형 ────────────────────────────────────────────────────────────
+const OPP_TYPES = [
+  { id:"일반수주",    label:"일반수주",    color:"#2563EB", icon:"📦" },
+  { id:"고객사등록",  label:"고객사등록",  color:"#065F46", icon:"🏭" },
+  { id:"초도품납품",  label:"초도품납품",  color:"#92400E", icon:"🔬" },
+];
+
+// ─── AVL 등록 상태 ────────────────────────────────────────────────────────────
+const AVL_STATUS = [
+  { id:"미등록",  label:"미등록",  color:"#6B7280", bg:"rgba(107,114,128,0.08)" },
+  { id:"심사중",  label:"심사중",  color:"#D97706", bg:"rgba(217,119,6,0.10)"   },
+  { id:"등록완료",label:"등록완료",color:"#16A34A", bg:"rgba(22,163,74,0.10)"   },
+];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
 
+// 구 단계명 → 신 단계명 매핑 (기존 데이터 호환)
+const STAGE_LEGACY_MAP = {
+  "니즈파악":  "기술협의",
+  "제안":      "초도견적",
+  "협상":      "견적검토/협상",
+  "계약완료":  "수주확정",
+  "초기 접촉": "초기접촉",
+  "니즈 파악": "기술협의",
+};
+const resolveStage = (stage) => {
+  if (!stage) return "리드";
+  if (STAGE_MAP[stage]) return stage;
+  return STAGE_LEGACY_MAP[stage] || stage;
+};
+
 const STAGE_STRATEGY = {
-  "리드":    { icon:"🎯", tips:["잠재 고객 정보 조사 및 결정권자 파악","인트로 방법 결정 (소개/콜드콜/이벤트)","고객사 업황 및 Pain Point 사전 조사","연락처 확보 및 초기 접촉 시도"] },
-  "초기접촉":{ icon:"🤝", tips:["첫 미팅/콜 목표 명확히 설정","회사 및 솔루션 간략 소개 자료 준비","고객 니즈 탐색 질문 리스트 작성","이해관계자 지도(Stakeholder Map) 파악"] },
-  "니즈파악":{ icon:"🔍", tips:["BANT 확인 (예산·권한·니즈·타임라인)","핵심 Pain Point 문서화","경쟁사 현황 및 고객 평가 파악","솔루션 맵핑 및 차별화 포인트 정의"] },
-  "제안":    { icon:"📋", tips:["고객 니즈 맞춤형 제안서 작성","ROI 및 비즈니스 임팩트 수치화","의사결정권자 포함 발표 일정 확보","Q&A 시나리오 및 대응 자료 준비"] },
-  "협상":    { icon:"⚖️", tips:["양보 한계선 사전 설정 (가격·납기·조건)","경쟁사 대비 차별화 재강조","법무·구매팀 이슈 사전 해결","계약 체결 목표 일정 명시 후 클로징 시도"] },
-  "계약완료":{ icon:"🎉", tips:["킥오프 미팅 일정 즉시 수립","온보딩 담당자 배정 및 인수인계","고객 성공 지표(KPI) 합의","레퍼런스·추가 영업 기회 탐색"] },
-  "손실":    { icon:"📌", tips:["패인 원인 분석 (가격/경쟁/타이밍/니즈)","향후 재접촉 가능성 및 시점 평가","학습 포인트 팀 전체 공유","관계 유지 활동 지속 (뉴스레터, 행사)"] },
+  "리드":           { icon:"🎯", tips:["잠재 고객 정보 조사 및 구매 담당자 파악","고객사 업황 및 현재 사용 제품/공급사 파악","접촉 방법 결정 (소개/전시회/콜드콜)","연락처 확보 및 초기 접촉 시도"] },
+  "초기접촉":       { icon:"🤝", tips:["첫 미팅 목표 명확히 설정 (소개 → 니즈 파악)","회사 및 주요 제품 라인업 소개 자료 준비","고객 현황 및 Pain Point 탐색 질문 준비","이해관계자 파악 (구매/기술/경영진)"] },
+  "기술협의":       { icon:"🔬", tips:["고객 기술 스펙 및 요구사항 상세 파악","당사 제품의 기술 적합성 검토 및 확인","샘플 또는 기술 자료 제출","경쟁사 제품 대비 기술 차별화 포인트 정리"] },
+  "초도견적":       { icon:"📋", tips:["고객 요구 스펙 기반 견적서 작성","납기, MOQ, 결제조건 등 주요 조건 포함","내부 원가 검토 및 마진 확인","경쟁사 가격 수준 파악 후 전략적 가격 설정"] },
+  "재견적":         { icon:"🔄", tips:["고객 피드백 기반 견적 조정 포인트 파악","가격 조정 가능 범위 내부 승인","스펙 변경 시 원가 재산출","재견적 제출 시 변경 사항 명확히 표기"] },
+  "견적검토/협상":  { icon:"⚖️", tips:["양보 한계선 사전 설정 (가격·납기·결제조건)","경쟁사 대비 우리의 강점 재강조","구매팀 외 기술팀·경영진 라인 동시 공략","최종 계약 조건 합의 후 PO 요청"] },
+  "수주확정":       { icon:"🎉", tips:["PO 또는 계약서 수령 및 내부 공유","납기 일정 확정 및 생산/물류팀 전달","첫 납품 품질 확인 철저히","레퍼런스 확보 및 추가 물량 확대 기회 탐색"] },
+  "손실":           { icon:"📌", tips:["패인 원인 분석 (가격/기술/납기/경쟁사)","향후 재접촉 가능 시점 평가","경쟁사 선정 이유 파악 및 대응 전략 수립","관계 유지 활동 지속 (정기 연락, 신제품 안내)"] },
 };
 
 const ACT_TYPES = ["방문미팅","전화통화","화상회의","이메일","식사미팅","제안발표","협상미팅","계약서검토","기타"];
@@ -283,7 +318,7 @@ function ClientSearchInput({ clients, value, onChange }) {
 }
 
 function OppFormModal({ opp, clients, onSave, onClose }) {
-  const blank = { name:"", accountId:clients[0]?.id||"", owner:"", businessUnit:BUSINESS_UNITS[0].id, stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
+  const blank = { name:"", accountId:clients[0]?.id||"", owner:"", businessUnit:BUSINESS_UNITS[0].id, oppType:"일반수주", stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
   const [f,sF]       = useState(opp ? { ...opp, value:String(opp.value) } : blank);
   const [users, setUsers] = useState([]);
   const s=k=>v=>sF(p=>({...p,[k]:v}));
@@ -322,6 +357,18 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
         )}
       </div>
       <Sel label="사업부" value={f.businessUnit||BUSINESS_UNITS[0].id} onChange={s("businessUnit")} options={BUSINESS_UNITS.map(b=>({value:b.id,label:b.id}))}/>
+      {/* 영업기회 유형 */}
+      <div style={{ gridColumn:"1/-1", marginBottom:16 }}>
+        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회 유형</label>
+        <div style={{ display:"flex", gap:8 }}>
+          {OPP_TYPES.map(t=>(
+            <button key={t.id} type="button" onClick={()=>sF(p=>({...p,oppType:t.id}))}
+              style={{ flex:1, padding:"10px 12px", borderRadius:8, border:`1.5px solid ${f.oppType===t.id?t.color:C.border}`, background:f.oppType===t.id?`${t.color}10`:"transparent", color:f.oppType===t.id?t.color:C.textMuted, fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+              <span>{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
       <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)||0}))}/>
       <Inp label="예상 금액 (원)" type="number" value={f.value} onChange={v=>sF(p=>({...p,value:v.replace(/[^0-9]/g,"")}))} placeholder="숫자만 입력 (예: 100000000)"/>
@@ -368,7 +415,7 @@ function StageMoveModal({ opp, onSave, onClose }) {
     <Inp label="단계 변경 사유 / 메모" value={note} onChange={setNote} multiline placeholder="단계 변경 이유, 이 시점의 상황을 기록하세요"/>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn variant={newStage==="계약완료"?"success":newStage==="손실"?"danger":"primary"} onClick={()=>onSave(newStage, prob, note)}>단계 변경</Btn>
+      <Btn variant={newStage==="수주확정"?"success":newStage==="손실"?"danger":"primary"} onClick={()=>onSave(newStage, prob, note)}>단계 변경</Btn>
     </div>
   </Modal>;
 }
@@ -478,7 +525,7 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
     },
     {
       id:"closeDate", label:"예상 계약일", editable:true,
-      color: isLate(opp.closeDate)&&opp.stage!=="계약완료" ? C.red : C.textMuted,
+      color: isLate(opp.closeDate)&&opp.stage!=="수주확정" ? C.red : C.textMuted,
       display: opp.closeDate||"—",
       input: <input type="date" value={val} onChange={e=>setVal(e.target.value)} onBlur={save} onKeyDown={handleKey} autoFocus style={inputStyle}/>,
     },
@@ -618,6 +665,13 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const handleStageMove = (newStage, prob, note) => {
     const entry = { id:uid(), stage:newStage, date:today(), note, by:opp.owner };
     update({ stage:newStage, probability:prob, stageHistory:[...opp.stageHistory, entry] });
+    // 고객사등록 유형이 수주확정으로 이동 시 → 고객사 AVL 상태 자동 "심사중" 업데이트
+    if (opp.oppType==="고객사등록" && newStage==="수주확정" && opp.accountId) {
+      sbUpsert("clients_db", String(opp.accountId), {
+        avlStatus:"심사중",
+        avlUpdatedAt: today(),
+      });
+    }
     setSM(false);
   };
 
@@ -691,8 +745,8 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           </div>
         </div>
         <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
-          {opp.stage!=="계약완료"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
-          {opp.stage==="계약완료"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 계약완료</span>}
+          {opp.stage!=="수주확정"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
+          {opp.stage==="수주확정"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 수주확정</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
           {onArchive && <Btn variant="ghost" size="sm" style={{ color:C.textMuted }} onClick={()=>{ if(window.confirm(`"${opp.name}"을 아카이브 하시겠습니까?\n아카이브된 딜은 파이프라인 > 아카이브 탭에서 확인할 수 있습니다.`)) { onArchive(opp); onBack(); } }}>📦 아카이브</Btn>}
           {isAdmin && onDelete && (
@@ -707,7 +761,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       <div style={{ marginBottom:20 }}>
         <div style={{ display:"flex", alignItems:"center", gap:0 }}>
           {ACTIVE.map((s,i)=>{
-            const passed = currentIdx>i || opp.stage==="계약완료";
+            const passed = currentIdx>i || opp.stage==="수주확정";
             const active = currentIdx===i && opp.stage!=="손실";
             const isLost = opp.stage==="손실";
             return <div key={s.id} style={{ display:"flex", alignItems:"center", flex:i<ACTIVE.length-1?1:"none" }}>
@@ -763,15 +817,19 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           {[
-            { label:"사업부",     val:opp.businessUnit, isBU:true },
-            { label:"영업 소스",  val:opp.source      },
-            { label:"고객사",     val:account.name    },
-            { label:"담당자",     val:opp.owner       },
+            { label:"영업기회 유형", val:opp.oppType||"일반수주", isType:true },
+            { label:"사업부",        val:opp.businessUnit, isBU:true },
+            { label:"영업 소스",     val:opp.source      },
+            { label:"담당자",        val:opp.owner       },
           ].map(it=>{
-            const buCfg = it.isBU ? BUSINESS_UNITS.find(b=>b.id===it.val) : null;
-            return <div key={it.label} style={{ background:buCfg?`${buCfg.color}10`:C.surface, border:`1px solid ${buCfg?buCfg.color+"40":C.border}`, borderRadius:10, padding:"12px 16px" }}>
-              <div style={{ fontSize:10, color:buCfg?buCfg.color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
-              <div style={{ fontSize:13, fontWeight:buCfg?700:400, color:buCfg?buCfg.color:it.val?C.text:C.textDim }}>{it.val||"—"}</div>
+            const tc  = it.isType ? OPP_TYPES.find(t=>t.id===it.val) : null;
+            const buCfg = it.isBU  ? BUSINESS_UNITS.find(b=>b.id===it.val) : null;
+            const color = tc?.color || buCfg?.color || C.textMuted;
+            return <div key={it.label} style={{ background:tc||buCfg?`${color}10`:C.surface, border:`1px solid ${tc||buCfg?color+"40":C.border}`, borderRadius:10, padding:"12px 16px" }}>
+              <div style={{ fontSize:10, color:tc||buCfg?color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
+              <div style={{ fontSize:13, fontWeight:tc||buCfg?700:400, color:tc||buCfg?color:it.val?C.text:C.textDim, display:"flex", alignItems:"center", gap:4 }}>
+                {tc&&<span>{tc.icon}</span>}{it.val||"—"}
+              </div>
             </div>;
           })}
         </div>
@@ -1090,6 +1148,10 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                       const bu=BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
                       return bu?<span style={{ fontSize:10, background:`${bu.color}18`, color:bu.color, padding:"1px 6px", borderRadius:6, fontWeight:700 }}>{bu.id}</span>:null;
                     })()}
+                    {o.oppType&&o.oppType!=="일반수주"&&(()=>{
+                      const tc=OPP_TYPES.find(t=>t.id===o.oppType);
+                      return tc?<span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 6px", borderRadius:6, fontWeight:700 }}>{tc.icon} {tc.label}</span>:null;
+                    })()}
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                     <span style={{ fontSize:14, fontWeight:800, color:stage.color }}>{fmt(o.value)}</span>
@@ -1137,9 +1199,9 @@ function OppListView({ opps, clients, onSelect }) {
           <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{o.name}</div>
           <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
             <span style={{ fontSize:12, color:C.textMuted }}>{acc.name} · {o.owner}</span>
-            {o.businessUnit && (()=>{
-              const bu = BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
-              return bu ? <span style={{ fontSize:10, background:`${bu.color}15`, color:bu.color, padding:"1px 7px", borderRadius:8, fontWeight:700 }}>{bu.id}</span> : null;
+            {o.oppType&&o.oppType!=="일반수주"&&(()=>{
+              const tc=OPP_TYPES.find(t=>t.id===o.oppType);
+              return tc?<span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{tc.icon} {tc.label}</span>:null;
             })()}
           </div>
         </div>
@@ -1150,8 +1212,8 @@ function OppListView({ opps, clients, onSelect }) {
         </div>
         <ProbBar value={o.probability} stage={o.stage}/>
         <div>
-          <div style={{ fontSize:12, color:late&&o.stage!=="계약완료"?C.red:C.textMuted, fontWeight:late&&o.stage!=="계약완료"?700:400 }}>
-            {late&&o.stage!=="계약완료"?"⚠ ":""}{o.nextStep||"—"}
+          <div style={{ fontSize:12, color:late&&o.stage!=="수주확정"?C.red:C.textMuted, fontWeight:late&&o.stage!=="수주확정"?700:400 }}>
+            {late&&o.stage!=="수주확정"?"⚠ ":""}{o.nextStep||"—"}
           </div>
           <div style={{ fontSize:11, color:C.textDim }}>{o.nextStepDate}</div>
         </div>
@@ -1170,27 +1232,29 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
   const [addModal, setAddModal] = useState(false);
   const [ownerFilter,  setOwner] = useState("전체");
   const [stageFilter,  setStage] = useState("활성");
-  const [buFilter,     setBU]    = useState("전체"); // 사업부 필터
+  const [buFilter,     setBU]      = useState("전체"); // 사업부 필터
+  const [typeFilter,   setTypeFil] = useState("전체"); // 영업기회 유형 필터
   const [archSearch,   setAS]    = useState("");
 
   useEffect(() => {
     if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
   }, [initialTarget]);
 
-  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); }} onNavigateToClient={onNavigateToClient}/>;
+  if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); sbDelete("opps", id); }} onNavigateToClient={onNavigateToClient}/>;
 
   const owners    = ["전체",...new Set(opps.map(o=>o.owner).filter(Boolean))];
-  const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="계약완료"&&o.stage!=="손실":stageFilter==="계약완료"?o.stage==="계약완료":stageFilter==="손실"?o.stage==="손실":true);
+  const activeOpps = opps.filter(o=>stageFilter==="활성"?o.stage!=="수주확정"&&o.stage!=="손실":stageFilter==="수주확정"?o.stage==="수주확정":stageFilter==="손실"?o.stage==="손실":true);
   const filtered  = activeOpps
     .filter(o=>ownerFilter==="전체"||o.owner===ownerFilter)
-    .filter(o=>buFilter==="전체"||o.businessUnit===buFilter);
+    .filter(o=>buFilter==="전체"||o.businessUnit===buFilter)
+    .filter(o=>typeFilter==="전체"||o.oppType===typeFilter);
 
-  const allActive  = opps.filter(o=>o.stage!=="계약완료"&&o.stage!=="손실");
+  const allActive  = opps.filter(o=>o.stage!=="수주확정"&&o.stage!=="손실");
   const totalPipe  = allActive.reduce((s,o)=>s+o.value,0);
   const weighted   = allActive.reduce((s,o)=>s+Math.round(o.value*o.probability/100),0);
-  const wonTotal   = opps.filter(o=>o.stage==="계약완료").reduce((s,o)=>s+o.value,0);
-  const wonCount   = opps.filter(o=>o.stage==="계약완료").length;
-  const closedCount= opps.filter(o=>o.stage==="계약완료"||o.stage==="손실").length;
+  const wonTotal   = opps.filter(o=>o.stage==="수주확정").reduce((s,o)=>s+o.value,0);
+  const wonCount   = opps.filter(o=>o.stage==="수주확정").length;
+  const closedCount= opps.filter(o=>o.stage==="수주확정"||o.stage==="손실").length;
   const winRate    = closedCount>0?Math.round(wonCount/closedCount*100):0;
 
   return <div>
@@ -1216,7 +1280,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
         {[
           { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent  },
           { label:"가중 예상 매출",  val:fmt(weighted),   sub:"확률 반영",                color:C.purple  },
-          { label:"누적 계약완료",   val:fmt(wonTotal),   sub:`${wonCount}건`,            color:C.green   },
+          { label:"누적 수주확정",   val:fmt(wonTotal),   sub:`${wonCount}건`,            color:C.green   },
           { label:"승률",            val:`${winRate}%`,   sub:`${closedCount}건 마감 기준`,color:winRate>=50?C.green:C.yellow },
         ].map(m=><Card key={m.label}>
           <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>{m.label}</div>
@@ -1229,8 +1293,8 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
         {BUSINESS_UNITS.map(bu=>{
           const buOpps    = opps.filter(o=>o.businessUnit===bu.id&&o.stage!=="손실");
-          const buActive  = buOpps.filter(o=>o.stage!=="계약완료");
-          const buWon     = buOpps.filter(o=>o.stage==="계약완료");
+          const buActive  = buOpps.filter(o=>o.stage!=="수주확정");
+          const buWon     = buOpps.filter(o=>o.stage==="수주확정");
           const buPipe    = buActive.reduce((s,o)=>s+o.value,0);
           const buWonVal  = buWon.reduce((s,o)=>s+o.value,0);
           const isSelected = buFilter===bu.id;
@@ -1248,7 +1312,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
                   <div style={{ fontSize:10, color:C.textMuted }}>{buActive.length}건</div>
                 </div>
                 <div>
-                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>계약완료</div>
+                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>수주확정</div>
                   <div style={{ fontSize:13, fontWeight:800, color:C.green }}>{fmt(buWonVal)}</div>
                   <div style={{ fontSize:10, color:C.textMuted }}>{buWon.length}건</div>
                 </div>
@@ -1280,10 +1344,19 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       {/* Controls */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, gap:12 }}>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {["활성","계약완료","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{f}</button>)}
+          {["활성","수주확정","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{f}</button>)}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
           {/* 사업부 필터 */}
           {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>전체 사업부</button>}
+          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
+          {/* 영업기회 유형 필터 */}
+          {["전체", ...OPP_TYPES.map(t=>t.id)].map(t=>{
+            const tc = OPP_TYPES.find(x=>x.id===t);
+            return <button key={t} onClick={()=>setTypeFil(t)}
+              style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${typeFilter===t?(tc?.color||C.accent):C.border}`, background:typeFilter===t?`${tc?.color||C.accent}12`:"transparent", color:typeFilter===t?(tc?.color||C.accent):C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>
+              {tc&&<span>{tc.icon}</span>}{t}
+            </button>;
+          })}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
           {owners.map(o=><button key={o} onClick={()=>setOwner(o)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${ownerFilter===o?C.yellow:C.border}`, background:ownerFilter===o?C.yellowSoft:"transparent", color:ownerFilter===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{o}</button>)}
         </div>
@@ -1886,7 +1959,24 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
     <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:"22px 28px", marginBottom:24 }}>
       <div style={{ display:"flex", alignItems:"center", gap:14 }}>
         <div style={{ width:50, height:50, borderRadius:14, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, fontWeight:900, color:C.accent }}>{client.name[0]}</div>
-        <div><div style={{ fontSize:20, fontWeight:900, color:C.text }}>{client.name}</div><div style={{ fontSize:13, color:C.textMuted, marginTop:2 }}>{client.industry} · {client.owner} 담당</div></div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:20, fontWeight:900, color:C.text }}>{client.name}</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginTop:2 }}>{client.industry} · {client.owner} 담당</div>
+        </div>
+        {/* AVL 뱃지 */}
+        {(()=>{
+          const avl = AVL_STATUS.find(a=>a.id===(data.avlStatus||"미등록"));
+          return (
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>AVL 등록</div>
+              <select value={data.avlStatus||"미등록"} onChange={e=>update({avlStatus:e.target.value, avlUpdatedAt:today()})}
+                style={{ background:avl.bg, border:`1.5px solid ${avl.color}40`, color:avl.color, borderRadius:8, padding:"5px 12px", fontSize:12, fontWeight:700, outline:"none", cursor:"pointer" }}>
+                {AVL_STATUS.map(a=><option key={a.id} value={a.id}>{a.id}</option>)}
+              </select>
+              {data.avlUpdatedAt && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{data.avlUpdatedAt} 업데이트</div>}
+            </div>
+          );
+        })()}
       </div>
     </div>
     <TabBar tabs={subTabs} active={subTab} onChange={setST}/>
@@ -1983,19 +2073,111 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
   </div>;
 }
 
-function ClientFormModal({ client, onSave, onClose }) {
+function ClientFormModal({ client, clients, onSave, onClose }) {
   const blank = { name:"", industry:"", owner:"" };
-  const [f, sF] = useState(client || blank);
+  const [f, sF]           = useState(client || blank);
+  const [nameFocused, setNF] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const s = k => v => sF(p => ({...p, [k]:v}));
+
+  const isEdit = !!client;
+
+  // 기존 고객사 중 유사한 이름 찾기 (수정 모드일 때는 자기 자신 제외)
+  const similar = (clients||[]).filter(c => {
+    if (isEdit && c.id === client.id) return false;
+    if (!f.name.trim()) return false;
+    const a = c.name.toLowerCase().replace(/\s/g,"");
+    const b = f.name.toLowerCase().replace(/\s/g,"");
+    return a.includes(b) || b.includes(a);
+  });
+
+  const exactMatch = similar.find(c =>
+    c.name.toLowerCase().replace(/\s/g,"") === f.name.toLowerCase().replace(/\s/g,"")
+  );
+
+  // 검색 드롭다운용 — 이름 입력 중 + 포커스 상태
+  const suggestions = nameFocused && f.name.trim().length >= 1
+    ? (clients||[]).filter(c => {
+        if (isEdit && c.id === client.id) return false;
+        return c.name.toLowerCase().includes(f.name.toLowerCase());
+      }).slice(0, 5)
+    : [];
+
+  const handleSave = () => {
+    if (!f.name.trim()) return;
+    if (exactMatch && !confirmed) return; // 완전 중복은 확인 없이 막음
+    onSave({...f, id: client?.id || uid()});
+  };
+
   return <Modal title={client ? "고객사 수정" : "고객사 추가"} onClose={onClose}>
-    <Inp label="고객사명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자"/>
+
+    {/* 고객사명 — 검색 드롭다운 포함 */}
+    <div style={{ marginBottom:16, position:"relative" }}>
+      <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사명</label>
+      <input
+        value={f.name}
+        onChange={e=>{ sF(p=>({...p,name:e.target.value})); setConfirmed(false); }}
+        onFocus={()=>setNF(true)}
+        onBlur={()=>setTimeout(()=>setNF(false), 150)}
+        placeholder="예: 삼성전자"
+        style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${exactMatch?C.red:similar.length&&!confirmed?C.yellow:C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}
+      />
+
+      {/* 자동완성 드롭다운 */}
+      {suggestions.length > 0 && (
+        <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.1)", zIndex:300, overflow:"hidden" }}>
+          <div style={{ padding:"8px 12px", fontSize:11, color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>기존 고객사</div>
+          {suggestions.map(c=>(
+            <div key={c.id} onMouseDown={()=>{ sF(p=>({...p,name:c.name,industry:c.industry||p.industry,owner:c.owner||p.owner})); setNF(false); }}
+              style={{ padding:"10px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${C.border}` }}
+              onMouseEnter={e=>e.currentTarget.style.background=C.surfaceUp}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{ width:28, height:28, borderRadius:7, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.accent, flexShrink:0 }}>{c.name[0]}</div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{c.name}</div>
+                <div style={{ fontSize:11, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
+              </div>
+              <span style={{ marginLeft:"auto", fontSize:11, color:C.textMuted }}>기존</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* 완전 중복 경고 */}
+    {exactMatch && (
+      <div style={{ background:C.redSoft, border:`1px solid ${C.red}30`, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:C.red, marginBottom:4 }}>⚠️ 동일한 고객사가 이미 존재합니다</div>
+        <div style={{ fontSize:12, color:C.textMuted, marginBottom:10 }}>
+          <strong style={{ color:C.text }}>{exactMatch.name}</strong> · {exactMatch.industry} · {exactMatch.owner} 담당
+        </div>
+        <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+          <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
+          <span style={{ fontSize:12, color:C.textMuted }}>중복 확인 — 그래도 추가하겠습니다</span>
+        </label>
+      </div>
+    )}
+
+    {/* 유사 고객사 경고 (완전 중복 아닐 때) */}
+    {similar.length > 0 && !exactMatch && (
+      <div style={{ background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"12px 16px", marginBottom:16 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:C.yellow, marginBottom:6 }}>유사한 고객사가 있습니다</div>
+        {similar.slice(0,3).map(c=>(
+          <div key={c.id} style={{ fontSize:12, color:C.textMuted, marginBottom:4 }}>
+            · <strong style={{ color:C.text }}>{c.name}</strong> · {c.industry} · {c.owner} 담당
+          </div>
+        ))}
+        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>동일 고객사가 아닌지 확인해주세요</div>
+      </div>
+    )}
+
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="업종" value={f.industry} onChange={s("industry")} placeholder="예: 반도체, 화학"/>
       <Inp label="영업 담당자" value={f.owner} onChange={s("owner")} placeholder="예: 김민준"/>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={() => f.name && onSave({...f, id: client?.id || uid()})}>저장</Btn>
+      <Btn onClick={handleSave} style={{ opacity: exactMatch && !confirmed ? 0.4 : 1 }}>저장</Btn>
     </div>
   </Modal>;
 }
@@ -2093,8 +2275,15 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
               <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
             </div>:<div style={{ padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:12, color:C.textDim, textAlign:"center" }}>담당자 미등록</div>}
-            <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, fontSize:11, color:d.history?.[0]?C.textMuted:C.textDim }}>
-              {d.history?.[0]?<span><span style={{ color:C.textDim }}>최근</span> · {d.history[0].date} {d.history[0].type}</span>:"접촉 기록 없음"}
+            <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:11, color:d.history?.[0]?C.textMuted:C.textDim }}>
+                {d.history?.[0]?<span><span style={{ color:C.textDim }}>최근</span> · {d.history[0].date} {d.history[0].type}</span>:"접촉 기록 없음"}
+              </div>
+              {(()=>{
+                const avl = AVL_STATUS.find(a=>a.id===(d.avlStatus||"미등록"));
+                if (!avl || d.avlStatus==="미등록") return null;
+                return <span style={{ fontSize:10, background:avl.bg, color:avl.color, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>AVL {avl.id}</span>;
+              })()}
             </div>
           </Card>;
         })}
@@ -2157,7 +2346,7 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
       </div>
     </div>}
 
-    {modal && <ClientFormModal client={modal==="add"?null:modal} onClose={()=>setModal(null)} onSave={handleSave}/>}
+    {modal && <ClientFormModal client={modal==="add"?null:modal} clients={clients} onClose={()=>setModal(null)} onSave={handleSave}/>}
   </div>;
 }
 
@@ -2166,10 +2355,10 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
 function Dashboard({ opps, actions, meetings, clients }) {
   const [dashTab, setDashTab] = useState("overview");
 
-  const activeOpps=opps.filter(o=>o.stage!=="계약완료"&&o.stage!=="손실");
+  const activeOpps=opps.filter(o=>o.stage!=="수주확정"&&o.stage!=="손실");
   const totalPipe=activeOpps.reduce((s,o)=>s+o.value,0);
   const weighted=activeOpps.reduce((s,o)=>s+Math.round(o.value*o.probability/100),0);
-  const won=opps.filter(o=>o.stage==="계약완료");
+  const won=opps.filter(o=>o.stage==="수주확정");
   const pending=actions.filter(a=>!a.done);
   const late=pending.filter(a=>isLate(a.dueDate));
 
@@ -2194,7 +2383,7 @@ function Dashboard({ opps, actions, meetings, clients }) {
         {[
           { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 활성 딜`,         color:C.accent },
           { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                              color:C.purple },
-          { label:"계약 완료",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건`,   color:C.green  },
+          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건`,   color:C.green  },
           { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,             color:late.length?C.red:C.yellow },
         ].map(m=><Card key={m.label}><div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>{m.label}</div><div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div><div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div></Card>)}
       </div>
@@ -2311,7 +2500,7 @@ const ACTION_TEMPLATES = [
     ]
   },
   {
-    id:"t4", name:"계약 후 온보딩", stage:"계약완료", color:"#10B981",
+    id:"t4", name:"계약 후 온보딩", stage:"수주확정", color:"#10B981",
     actions:[
       { title:"킥오프 미팅 일정 수립 및 아젠다 준비",      priority:"높음", dayOffset:3 },
       { title:"온보딩 담당자 배정 및 인수인계",            priority:"높음", dayOffset:5 },
@@ -2610,7 +2799,7 @@ function WeeklyReport({ opps, actions, meetings, clients }) {
   // Build snapshot data for the AI
   const buildSnapshot = () => {
     const activeOpps   = opps.filter(o => o.stage !== "손실");
-    const wonOpps      = opps.filter(o => o.stage === "계약완료");
+    const wonOpps      = opps.filter(o => o.stage === "수주확정");
     const lostOpps     = opps.filter(o => o.stage === "손실");
     const totalPipe    = activeOpps.reduce((s,o) => s + o.value, 0);
     const weighted     = activeOpps.reduce((s,o) => s + Math.round(o.value * o.probability / 100), 0);
@@ -2661,7 +2850,7 @@ function WeeklyReport({ opps, actions, meetings, clients }) {
 활성 딜 수: ${snap.activeCount}개
 총 파이프라인: ${snap.totalPipe}
 가중 예상 매출: ${snap.weighted}
-계약완료: ${snap.wonCount}건 (${snap.wonValue})
+수주확정: ${snap.wonCount}건 (${snap.wonValue})
 손실: ${snap.lostCount}건
 
 === 영업기회 상세 ===
@@ -3057,8 +3246,8 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
   // Compute per-quarter actuals and forecast
   const qData = Object.entries(QTR_RANGES).map(([q, cfg]) => {
     const rd = (o) => o.revenueDate || o.closeDate || "";
-    const won      = opps.filter(o => o.stage === "계약완료" && getYear(rd(o)) === year && getQtr(rd(o)) === q);
-    const forecast = opps.filter(o => o.stage !== "계약완료" && o.stage !== "손실" && getYear(rd(o)) === year && getQtr(rd(o)) === q);
+    const won      = opps.filter(o => o.stage === "수주확정" && getYear(rd(o)) === year && getQtr(rd(o)) === q);
+    const forecast = opps.filter(o => o.stage !== "수주확정" && o.stage !== "손실" && getYear(rd(o)) === year && getQtr(rd(o)) === q);
     const actualVal   = won.reduce((s,o) => s + o.value, 0);
     const forecastVal = forecast.reduce((s,o) => s + Math.round(o.value * o.probability / 100), 0);
     const target      = yearGoals[q] || 0;
@@ -3115,7 +3304,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
             const cl  = clients.find(c => c.id === o.accountId) || {};
             const s   = STAGE_MAP[o.stage] || {};
             const rd  = o.revenueDate || o.closeDate || "";
-            const won = o.stage === "계약완료";
+            const won = o.stage === "수주확정";
             return (
               <div key={o.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 80px", gap:12, alignItems:"center", padding:"12px 14px", background:won ? C.greenSoft : C.surface, border:`1px solid ${won ? C.green+"40" : C.border}`, borderRadius:10 }}>
                 <div>
@@ -3254,13 +3443,13 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
                 <span style={{ fontSize:13, fontWeight:700, color:cfg.color }}>{q}</span>
                 <span style={{ fontSize:12, color:C.textMuted }}>{cfg.label}</span>
                 <span style={{ fontSize:11, background:`${cfg.color}15`, color:cfg.color, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{qOpps.length}건</span>
-                <span style={{ fontSize:12, color:cfg.color, fontWeight:700, marginLeft:"auto" }}>{fmt(qOpps.reduce((s,o) => s+(o.stage==="계약완료"?o.value:Math.round(o.value*o.probability/100)),0))}</span>
+                <span style={{ fontSize:12, color:cfg.color, fontWeight:700, marginLeft:"auto" }}>{fmt(qOpps.reduce((s,o) => s+(o.stage==="수주확정"?o.value:Math.round(o.value*o.probability/100)),0))}</span>
               </div>
               <div style={{ display:"grid", gap:6 }}>
                 {qOpps.map(o => {
                   const cl  = clients.find(c => c.id === o.accountId) || {};
                   const s   = STAGE_MAP[o.stage] || {};
-                  const won = o.stage === "계약완료";
+                  const won = o.stage === "수주확정";
                   const rdStr = rd(o);
                   return (
                     <div key={o.id} style={{ display:"flex", alignItems:"center", gap:14, padding:"10px 14px", background: won ? C.greenSoft : C.surfaceUp, border:`1px solid ${won ? C.green+"30" : C.border}`, borderRadius:8 }}>
@@ -3605,9 +3794,9 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
 
   // Pipeline top deals
   const activeOpps = opps
-    .filter(o=>o.stage!=="손실"&&o.stage!=="계약완료")
+    .filter(o=>o.stage!=="손실"&&o.stage!=="수주확정")
     .sort((a,b)=>b.value*b.probability/100 - a.value*a.probability/100);
-  const wonOpps = opps.filter(o=>o.stage==="계약완료");
+  const wonOpps = opps.filter(o=>o.stage==="수주확정");
 
   const lateCount  = actions.filter(a=>!a.done&&isLate(a.dueDate)).length;
   const todayCount = actions.filter(a=>!a.done&&a.dueDate===todayStr).length;
@@ -3696,7 +3885,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
             {[
               { label:"활성 딜",  val:activeOpps.length,  color:MC.accent  },
-              { label:"계약완료", val:wonOpps.length,     color:MC.green   },
+              { label:"수주확정", val:wonOpps.length,     color:MC.green   },
               { label:"파이프라인", val:fmt(activeOpps.reduce((s,o)=>s+o.value,0)), color:MC.text },
             ].map(s=>(
               <div key={s.label} style={{ background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:12, padding:"12px 14px" }}>
@@ -4266,7 +4455,11 @@ function App() {
         load("clients"), load("archived_clients"), load("archived_clients_db"),
       ]);
 
-      if (oppRows.length)  sO(oppRows.map(r=>r.data));
+      if (oppRows.length)  sO(oppRows.map(r=>({
+          ...r.data,
+          stage: resolveStage(r.data.stage),
+          stageHistory: (r.data.stageHistory||[]).map(h=>({...h, stage:resolveStage(h.stage)})),
+        })));
       if (dbRows.length)   sDb(Object.fromEntries(dbRows.map(r=>[r.id, r.data])));
       if (meetRows.length) sMt(meetRows.map(r=>r.data));
       if (actRows.length)  sAc(actRows.map(r=>r.data));
