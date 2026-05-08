@@ -210,11 +210,59 @@ function Modal({ title, onClose, children }) {
   </div>;
 }
 
-function Inp({ label, value, onChange, type="text", multiline, placeholder }) {
-  const s = { width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", resize:multiline?"vertical":"none", minHeight:multiline?80:"auto", fontFamily:"inherit", boxSizing:"border-box" };
+function Inp({ label, value, onChange, type="text", multiline, placeholder, minHeight }) {
+  const [composing, setComposing] = useState(false);
+  const [localVal,  setLocalVal]  = useState(value);
+
+  // 외부 value 변경 시 동기화 (IME 조합 중이 아닐 때만)
+  useEffect(() => {
+    if (!composing) setLocalVal(value);
+  }, [value, composing]);
+
+  const s = {
+    width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`,
+    borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14,
+    outline:"none", resize:multiline?"vertical":"none",
+    minHeight: multiline ? (minHeight||100) : "auto",
+    fontFamily:"inherit", boxSizing:"border-box", lineHeight:1.7,
+  };
+
   return <div style={{ marginBottom:16 }}>
-    {label&&<label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
-    {multiline?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}
+    {label && <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
+    {multiline ? (
+      <textarea
+        value={localVal}
+        onChange={e => {
+          setLocalVal(e.target.value);
+          if (!composing) onChange(e.target.value);
+        }}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={e => {
+          setComposing(false);
+          setLocalVal(e.target.value);
+          onChange(e.target.value);
+        }}
+        placeholder={placeholder}
+        style={s}
+      />
+    ) : (
+      <input
+        type={type}
+        value={localVal}
+        onChange={e => {
+          setLocalVal(e.target.value);
+          if (!composing) onChange(e.target.value);
+        }}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={e => {
+          setComposing(false);
+          setLocalVal(e.target.value);
+          onChange(e.target.value);
+        }}
+        placeholder={placeholder}
+        style={s}
+      />
+    )}
   </div>;
 }
 
@@ -1006,11 +1054,11 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               <Btn size="sm" variant="danger" onClick={()=>update({activities:opp.activities.filter(x=>x.id!==a.id)})}>삭제</Btn>
             </div>
           </div>
-          <div style={{ fontSize:13, color:C.text, lineHeight:1.6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>{a.content}</div>
+          <div style={{ fontSize:13, color:C.text, lineHeight:1.7, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.content}</div>
           {a.clientRequest && (
             <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
               <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
-              <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{a.clientRequest}</div>
+              <div style={{ fontSize:13, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.clientRequest}</div>
             </div>
           )}
         </div>
@@ -2011,25 +2059,111 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
       />
     </div>}
     {subTab==="history"&&<div>
-      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}><span style={{ fontSize:13, color:C.textMuted }}>{data.history.length}건</span><Btn onClick={()=>setHM("new")}>+ 기록</Btn></div>
-      {data.history.length===0&&<div style={{ textAlign:"center", padding:"50px 0", color:C.textMuted }}>히스토리 없음</div>}
-      {[...data.history].sort((a,b)=>b.date.localeCompare(a.date)).map((h,i,arr)=><div key={h.id} style={{ display:"flex", gap:14 }}>
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", flexShrink:0, paddingTop:4 }}>
-          <div style={{ width:12, height:12, borderRadius:"50%", background:C.accent, border:`2px solid ${C.accentGlow}` }}/>
-          {i<arr.length-1&&<div style={{ width:2, flex:1, background:C.border, minHeight:24, marginTop:4, borderRadius:1 }}/>}
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text }}>미팅 / 접촉 히스토리</div>
+          <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>총 {data.history.length}건의 기록</div>
         </div>
-        <div style={{ flex:1, paddingBottom:16 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
-            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{h.date}</span>
-              <span style={{ fontSize:11, background:C.surfaceUp, color:C.textMuted, padding:"3px 9px", borderRadius:6, fontWeight:700 }}>{h.type}</span>
-              <span style={{ fontSize:11, color:C.textDim }}>by {h.by}</span>
+        <Btn onClick={()=>setHM("new")}>+ 기록 추가</Btn>
+      </div>
+
+      {/* Empty */}
+      {data.history.length===0 && (
+        <div style={{ textAlign:"center", padding:"60px 0" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>📋</div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>아직 기록이 없습니다</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginBottom:20 }}>미팅, 통화, 이메일 등 모든 접촉 기록을 남겨보세요</div>
+          <Btn onClick={()=>setHM("new")}>+ 첫 기록 추가</Btn>
+        </div>
+      )}
+
+      {/* Timeline */}
+      {(()=>{
+        const sorted = [...data.history].sort((a,b)=>b.date.localeCompare(a.date));
+
+        // 월별 그룹핑
+        const groups = {};
+        sorted.forEach(h => {
+          const key = h.date?.slice(0,7) || "기타"; // "2026-01"
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(h);
+        });
+
+        const TYPE_CFG = {
+          "방문미팅": { icon:"🤝", color:"#2563EB" },
+          "전화통화": { icon:"📞", color:"#16A34A" },
+          "화상회의": { icon:"💻", color:"#7C3AED" },
+          "이메일":   { icon:"✉️",  color:"#D97706" },
+          "식사미팅": { icon:"🍽",  color:"#DB2777" },
+          "계약체결": { icon:"📝", color:"#16A34A" },
+          "기타":     { icon:"📌", color:"#6B7280" },
+        };
+
+        return Object.entries(groups).map(([month, items]) => {
+          const [y, m] = month.split("-");
+          const monthLabel = month==="기타" ? "기타" : `${y}년 ${parseInt(m)}월`;
+
+          return (
+            <div key={month} style={{ marginBottom:32 }}>
+              {/* 월 헤더 */}
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+                <div style={{ fontSize:12, fontWeight:800, color:C.textMuted, letterSpacing:".05em", whiteSpace:"nowrap" }}>{monthLabel}</div>
+                <div style={{ flex:1, height:1, background:C.border }}/>
+                <div style={{ fontSize:11, color:C.textDim }}>{items.length}건</div>
+              </div>
+
+              {/* 타임라인 아이템 */}
+              <div style={{ position:"relative", paddingLeft:36 }}>
+                {/* 세로선 */}
+                <div style={{ position:"absolute", left:10, top:8, bottom:0, width:2, background:`linear-gradient(to bottom, ${C.border}, transparent)`, borderRadius:1 }}/>
+
+                {items.map((h, idx) => {
+                  const tc = TYPE_CFG[h.type] || TYPE_CFG["기타"];
+                  return (
+                    <div key={h.id} style={{ position:"relative", marginBottom: idx < items.length-1 ? 20 : 0 }}>
+                      {/* 도트 */}
+                      <div style={{ position:"absolute", left:-28, top:14, width:18, height:18, borderRadius:"50%", background:"#fff", border:`2px solid ${tc.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, boxShadow:`0 0 0 3px ${tc.color}18` }}>
+                        {tc.icon}
+                      </div>
+
+                      {/* 카드 */}
+                      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+                        {/* 카드 헤더 */}
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderBottom:`1px solid ${C.border}`, background:C.surfaceUp }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontSize:12, fontWeight:700, padding:"3px 10px", borderRadius:20, background:`${tc.color}12`, color:tc.color }}>
+                              {tc.icon} {h.type}
+                            </span>
+                            <span style={{ fontSize:12, color:C.textMuted }}>
+                              {h.date?.replace(/-/g,".")}
+                            </span>
+                            {h.by && (
+                              <span style={{ fontSize:11, color:C.textDim, display:"flex", alignItems:"center", gap:4 }}>
+                                <span style={{ width:16, height:16, borderRadius:"50%", background:C.accentSoft, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:800, color:C.accent }}>{h.by[0]}</span>
+                                {h.by}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display:"flex", gap:4 }}>
+                            <button onClick={()=>setHM(h)} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>수정</button>
+                            <button onClick={()=>{ if(window.confirm("이 기록을 삭제하시겠습니까?")) update({history:data.history.filter(x=>x.id!==h.id)}); }} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.red}30`, borderRadius:6, color:C.red, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>삭제</button>
+                          </div>
+                        </div>
+
+                        {/* 카드 본문 */}
+                        <div style={{ padding:"14px 16px" }}>
+                          <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display:"flex", gap:6 }}><Btn size="sm" variant="ghost" onClick={()=>setHM(h)}>수정</Btn><Btn size="sm" variant="danger" onClick={()=>update({history:data.history.filter(x=>x.id!==h.id)})}>삭제</Btn></div>
-          </div>
-          <div style={{ fontSize:13, color:C.text, lineHeight:1.6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 14px" }}>{h.content}</div>
-        </div>
-      </div>)}
+          );
+        });
+      })()}
     </div>}
     {subTab==="files"&&<div>
       <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}><span style={{ fontSize:13, color:C.textMuted }}>{data.files.length}건</span><Btn onClick={()=>setFM(true)}>+ 파일</Btn></div>
