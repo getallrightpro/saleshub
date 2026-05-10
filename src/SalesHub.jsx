@@ -2553,7 +2553,7 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
     </div>}
 
     {/* ── 주간 리포트 ── */}
-    {dashTab==="report" && <WeeklyReport opps={opps} actions={actions} meetings={meetings} clients={clients}/>}
+    {dashTab==="report" && <WeeklyReport opps={opps} actions={actions} meetings={meetings} clients={clients} db={db} onNavigateToPipeline={onNavigateToPipeline} onNavigateToClient={onNavigateToClient}/>}
   </div>;
 }
 
@@ -2910,7 +2910,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
 }
 
 // ─── WEEKLY REPORT ────────────────────────────────────────────────────────────
-function WeeklyReport({ opps, actions, meetings, clients }) {
+function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeline, onNavigateToClient }) {
   const [report, setReport]   = useState(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied]   = useState(false);
@@ -3270,7 +3270,7 @@ ${snap.lastMeetingFocus}
                       ))}
 
                       {/* 금주 추가된 액션 */}
-                      {actions.filter(a=>a.oppId===opp.id && !a.done && a.createdAt>=week.start).map(a=>(
+                      {actions.filter(a=>a.oppId===opp.id && !a.done && a.dueDate>=week.start && a.dueDate<=week.end && !weekPendingActions.find(p=>p.id===a.id)).map(a=>(
                         <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                           <div style={{ width:22, height:22, borderRadius:6, background:`${C.yellow}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
                             <span style={{ fontSize:9, fontWeight:800, color:C.yellow }}>신규</span>
@@ -3279,7 +3279,7 @@ ${snap.lastMeetingFocus}
                             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                               <span style={{ fontSize:12, color:C.text, fontWeight:600 }}>{a.title}</span>
                               <span style={{ fontSize:11, color:C.textDim }}>마감 {a.dueDate}</span>
-                              <span style={{ fontSize:10, background:C.yellowSoft, color:C.yellow, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>액션 추가</span>
+                              <span style={{ fontSize:10, background:C.yellowSoft, color:C.yellow, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>액션</span>
                             </div>
                           </div>
                         </div>
