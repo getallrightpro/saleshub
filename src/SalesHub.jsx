@@ -4687,8 +4687,14 @@ function App() {
     sO(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      Promise.all(next.map(o => sbUpsert("opps", o.id, o)))
-        .finally(() => setSaving(false));
+      // 변경된 딜만 저장 (전체 재저장 방지)
+      const prevMap = Object.fromEntries(prev.map(o=>[o.id, JSON.stringify(o)]));
+      const changed = next.filter(o => prevMap[o.id] !== JSON.stringify(o));
+      const deleted  = prev.filter(o => !next.find(n=>n.id===o.id));
+      Promise.all([
+        ...changed.map(o => sbUpsert("opps", o.id, o)),
+        ...deleted.map(o => sbDelete("opps", o.id)),
+      ]).finally(() => setSaving(false));
       return next;
     });
   };
@@ -4696,8 +4702,13 @@ function App() {
     sCl(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      Promise.all(next.map(c => sbUpsert("clients", String(c.id), c)))
-        .finally(() => setSaving(false));
+      const prevMap = Object.fromEntries(prev.map(c=>[String(c.id), JSON.stringify(c)]));
+      const changed = next.filter(c => prevMap[String(c.id)] !== JSON.stringify(c));
+      const deleted  = prev.filter(c => !next.find(n=>n.id===c.id));
+      Promise.all([
+        ...changed.map(c => sbUpsert("clients", String(c.id), c)),
+        ...deleted.map(c => sbDelete("clients", String(c.id))),
+      ]).finally(() => setSaving(false));
       return next;
     });
   };
@@ -4705,7 +4716,11 @@ function App() {
     sDb(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      Promise.all(Object.entries(next).map(([id, data]) => sbUpsert("clients_db", id, data)))
+      // 변경된 고객사 DB 항목만 저장
+      const changed = Object.entries(next).filter(([id, data]) =>
+        JSON.stringify(prev[id]) !== JSON.stringify(data)
+      );
+      Promise.all(changed.map(([id, data]) => sbUpsert("clients_db", id, data)))
         .finally(() => setSaving(false));
       return next;
     });
@@ -4714,7 +4729,9 @@ function App() {
     sMt(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      Promise.all(next.map(m => sbUpsert("meetings", m.id, m)))
+      const prevMap = Object.fromEntries(prev.map(m=>[m.id, JSON.stringify(m)]));
+      const changed = next.filter(m => prevMap[m.id] !== JSON.stringify(m));
+      Promise.all(changed.map(m => sbUpsert("meetings", m.id, m)))
         .finally(() => setSaving(false));
       return next;
     });
@@ -4723,8 +4740,13 @@ function App() {
     sAc(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      Promise.all(next.map(a => sbUpsert("actions", a.id, a)))
-        .finally(() => setSaving(false));
+      const prevMap = Object.fromEntries(prev.map(a=>[a.id, JSON.stringify(a)]));
+      const changed = next.filter(a => prevMap[a.id] !== JSON.stringify(a));
+      const deleted  = prev.filter(a => !next.find(n=>n.id===a.id));
+      Promise.all([
+        ...changed.map(a => sbUpsert("actions", a.id, a)),
+        ...deleted.map(a => sbDelete("actions", a.id)),
+      ]).finally(() => setSaving(false));
       return next;
     });
   };
