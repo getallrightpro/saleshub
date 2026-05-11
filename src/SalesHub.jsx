@@ -708,27 +708,43 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const oppActions= actions.filter(a=>a.oppId===opp.id);
   const weighted  = Math.round(opp.value * opp.probability / 100);
 
-  const update = patch => onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,...patch}:o));
+  // prev state 기반 업데이트 — stale closure 방지
+  const update = patch => onUpdate(prev => prev.map(o =>
+    o.id === opp.id ? {...o, ...patch} : o
+  ));
 
+  // 항상 최신 state의 activities를 사용
+  const saveAct = a => {
+    onUpdate(prev => prev.map(o => {
+      if (o.id !== opp.id) return o;
+      const acts = o.activities || [];
+      const ex   = acts.find(x => x.id === a.id);
+      const next = ex ? acts.map(x=>x.id===a.id?a:x) : [...acts, a];
+      return { ...o, activities: next.sort((a,b)=>b.date.localeCompare(a.date)) };
+    }));
+    setAM(null);
+  };
+
+  // 항상 최신 state의 stageHistory를 사용
   const handleStageMove = (newStage, prob, note) => {
     const entry = { id:uid(), stage:newStage, date:today(), note, by:opp.owner };
-    update({ stage:newStage, probability:prob, stageHistory:[...opp.stageHistory, entry] });
-    // 고객사등록 유형이 수주확정으로 이동 시 → 고객사 AVL 상태 자동 "심사중" 업데이트
+    onUpdate(prev => prev.map(o => {
+      if (o.id !== opp.id) return o;
+      return { ...o, stage:newStage, probability:prob, stageHistory:[...(o.stageHistory||[]), entry] };
+    }));
     if (opp.oppType==="고객사등록" && newStage==="수주확정" && opp.accountId) {
-      sbUpsert("clients_db", String(opp.accountId), {
-        avlStatus:"심사중",
-        avlUpdatedAt: today(),
-      });
+      sbUpsert("clients_db", String(opp.accountId), { avlStatus:"심사중", avlUpdatedAt: today() });
     }
     setSM(false);
   };
 
-  const saveAct = a => {
-    const ex=opp.activities.find(x=>x.id===a.id);
-    update({ activities:ex?opp.activities.map(x=>x.id===a.id?a:x):[...opp.activities,a].sort((a,b)=>b.date.localeCompare(a.date)) });
-    setAM(null);
+  // 항상 최신 state의 files를 사용
+  const saveFile = f => {
+    onUpdate(prev => prev.map(o =>
+      o.id === opp.id ? {...o, files:[...(o.files||[]), f]} : o
+    ));
+    setFM(false);
   };
-  const saveFile = f => { update({ files:[...opp.files,f] }); setFM(false); };
 
   const ACTIVE = STAGES.filter(s=>s.id!=="손실");
   const currentIdx = ACTIVE.findIndex(s=>s.id===opp.stage);
@@ -1051,7 +1067,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <Btn size="sm" variant="ghost" onClick={()=>setAM(a)}>수정</Btn>
-              <Btn size="sm" variant="danger" onClick={()=>update({activities:opp.activities.filter(x=>x.id!==a.id)})}>삭제</Btn>
+              <Btn size="sm" variant="danger" onClick={()=>onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,activities:(o.activities||[]).filter(x=>x.id!==a.id)}:o))}>삭제</Btn>
             </div>
           </div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.content}</div>
@@ -2489,12 +2505,13 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
 function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline, onNavigateToClient }) {
   const [dashTab, setDashTab] = useState("overview");
 
-  const activeOpps=opps.filter(o=>o.stage!=="수주확정"&&o.stage!=="손실");
-  const totalPipe=activeOpps.reduce((s,o)=>s+o.value,0);
-  const weighted=activeOpps.reduce((s,o)=>s+Math.round(o.value*o.probability/100),0);
-  const won=opps.filter(o=>o.stage==="수주확정");
-  const pending=actions.filter(a=>!a.done);
-  const late=pending.filter(a=>isLate(a.dueDate));
+  const activeOpps = opps.filter(o=>o.stage!=="손실"); // 손실만 제외 (수주확정 포함)
+  const totalPipe  = activeOpps.reduce((s,o)=>s+o.value,0);
+  const weighted   = activeOpps.reduce((s,o)=>s+Math.round(o.value*o.probability/100),0);
+  const won        = opps.filter(o=>o.stage==="수주확정");
+  const inProgress = opps.filter(o=>o.stage!=="수주확정"&&o.stage!=="손실"); // 진행 중 딜
+  const pending    = actions.filter(a=>!a.done);
+  const late       = pending.filter(a=>isLate(a.dueDate));
 
   return <div>
     {/* Dashboard sub-tab bar */}
@@ -2515,10 +2532,10 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
     {dashTab==="overview" && <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:28 }}>
         {[
-          { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 활성 딜`,         color:C.accent },
-          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                              color:C.purple },
-          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건`,   color:C.green  },
-          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,             color:late.length?C.red:C.yellow },
+          { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 딜 (손실 제외)`,    color:C.accent },
+          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                                color:C.purple },
+          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green  },
+          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,               color:late.length?C.red:C.yellow },
         ].map(m=><Card key={m.label}><div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>{m.label}</div><div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div><div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div></Card>)}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
