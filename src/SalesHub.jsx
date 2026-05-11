@@ -4648,14 +4648,35 @@ function App() {
   const [clientTarget, setCT]   = useState(null); // client to jump to in clientdb
   const [revEditOpp, setRE]     = useState(null);
 
-  // ── 탭 간 네비게이션 ──
+  // ── History API — 뒤로가기/앞으로가기 지원 ──
+  const navigate = (tabId) => {
+    window.history.pushState({ tab: tabId }, "", `#${tabId}`);
+    sT(tabId);
+  };
+
+  // 뒤로가기/앞으로가기 이벤트 처리
+  useEffect(() => {
+    const handlePop = (e) => {
+      const tabId = e.state?.tab || "dashboard";
+      sT(tabId);
+    };
+    window.addEventListener("popstate", handlePop);
+    // 초기 진입 시 현재 URL hash에서 탭 복원
+    const hash = window.location.hash.replace("#", "");
+    const validTab = TABS.find(t => t.id === hash);
+    if (validTab) sT(validTab.id);
+    else window.history.replaceState({ tab: "dashboard" }, "", "#dashboard");
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+
+  // 크로스 네비게이션도 History 반영
   const handleNavigateToClient = (client) => {
     setCT(client);
-    sT("clientdb");
+    navigate("clientdb");
   };
   const handleNavigateToPipeline = (opp) => {
     setST(opp);
-    sT("pipeline");
+    navigate("pipeline");
   };
   const [dbReady, setDbReady] = useState(false);
   const [saving,  setSaving]  = useState(false);
@@ -4845,7 +4866,7 @@ function App() {
   return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text }}>
     <div style={{ borderBottom:`1px solid ${C.border}`, padding:"0 32px", background:C.surface, position:"sticky", top:0, zIndex:100, boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
       <div style={{ maxWidth:1400, margin:"0 auto", display:"flex", alignItems:"center" }}>
-        <div style={{ padding:"14px 0", marginRight:40, display:"flex", alignItems:"center", gap:10 }}>
+        <div onClick={()=>navigate("dashboard")} style={{ padding:"14px 0", marginRight:40, display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:32, height:32, borderRadius:8, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center" }}>
             <span style={{ fontSize:14, fontWeight:900, color:"#fff" }}>S</span>
           </div>
@@ -4854,7 +4875,7 @@ function App() {
             <div style={{ fontSize:9, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase", marginTop:-1 }}>Kangwon Energy</div>
           </div>
         </div>
-        {TABS.map(t=><button key={t.id} onClick={()=>sT(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
+        {TABS.map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
           <span style={{ fontSize:10 }}>{t.icon}</span>{t.label}
           {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{pending}</span>}
         </button>)}
