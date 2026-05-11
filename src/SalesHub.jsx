@@ -3348,7 +3348,7 @@ ${snap.lastMeetingFocus}
                                     <span style={{ fontSize:11, fontWeight:700, color:tc.color }}>{h.type}</span>
                                     <span style={{ fontSize:11, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
                                   </div>
-                                  {h.content && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, marginTop:2 }}>{h.content.length > 80 ? h.content.slice(0,80)+"…" : h.content}</div>}
+                                  {h.content && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, marginTop:2, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>}
                                 </div>
                               </div>
                             );
