@@ -3136,235 +3136,219 @@ ${snap.lastMeetingFocus}
 
     {/* ── 주간 활동 Summary ── */}
     {(() => {
-      // Collect all opps that had ANY activity this week
-      const weeklyActive = opps.map(opp => {
-        const cl = clients.find(c => c.id === opp.accountId) || {};
-        const s  = STAGE_MAP[opp.stage] || {};
+      // 금주/전주 탭용 상태는 WeeklyReport 컴포넌트 state 활용
+      const summaryWeeks = [
+        { key:"this", label:"금주", range: getWeekRange(weekOffset) },
+        { key:"last", label:"전주", range: getWeekRange(weekOffset - 1) },
+      ];
 
-        // Activities logged this week
-        const weekActivities = (opp.activities || [])
-          .filter(a => a.date >= week.start && a.date <= week.end)
-          .sort((a,b) => b.date.localeCompare(a.date));
+      return summaryWeeks.map(({ key, label, range: sw }) => {
+        const weeklyActive = opps.map(opp => {
+          const cl = clients.find(c => c.id === opp.accountId) || {};
+          const s  = STAGE_MAP[opp.stage] || {};
 
-        // Stage changes this week
-        const weekStageChanges = (opp.stageHistory || [])
-          .filter(h => h.date >= week.start && h.date <= week.end)
-          .sort((a,b) => b.date.localeCompare(a.date));
+          const weekActivities = (opp.activities || [])
+            .filter(a => a.date >= sw.start && a.date <= sw.end)
+            .sort((a,b) => b.date.localeCompare(a.date));
 
-        // Actions completed this week (dueDate in range + done)
-        const weekDoneActions = actions
-          .filter(a => a.oppId === opp.id && a.done && a.dueDate >= week.start && a.dueDate <= week.end);
+          const weekStageChanges = (opp.stageHistory || [])
+            .filter(h => h.date >= sw.start && h.date <= sw.end)
+            .sort((a,b) => b.date.localeCompare(a.date));
 
-        // Actions due this week (pending)
-        const weekPendingActions = actions
-          .filter(a => a.oppId === opp.id && !a.done && a.dueDate >= week.start && a.dueDate <= week.end);
+          const weekDoneActions = actions
+            .filter(a => a.oppId === opp.id && a.done && a.dueDate >= sw.start && a.dueDate <= sw.end);
 
-        const totalEvents = weekActivities.length + weekStageChanges.length + weekDoneActions.length;
-        if (totalEvents === 0) return null;
+          const weekPendingActions = actions
+            .filter(a => a.oppId === opp.id && !a.done && a.dueDate >= sw.start && a.dueDate <= sw.end);
 
-        return { opp, cl, s, weekActivities, weekStageChanges, weekDoneActions, weekPendingActions, totalEvents };
-      }).filter(Boolean).sort((a,b) => b.totalEvents - a.totalEvents);
+          const totalEvents = weekActivities.length + weekStageChanges.length + weekDoneActions.length;
+          if (totalEvents === 0) return null;
 
-      if (weeklyActive.length === 0) return (
-        <Card style={{ marginBottom:24 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:0 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:C.text }}>금주 활동 Summary</div>
-            <span style={{ fontSize:11, background:C.accentSoft, color:C.accent, borderRadius:10, padding:"2px 8px", fontWeight:700 }}>{week.label}</span>
-          </div>
-          <div style={{ textAlign:"center", padding:"32px 0", color:C.textMuted, fontSize:13 }}>이번 주 기록된 활동이 없습니다</div>
-        </Card>
-      );
+          return { opp, cl, s, weekActivities, weekStageChanges, weekDoneActions, weekPendingActions, totalEvents };
+        }).filter(Boolean).sort((a,b) => b.totalEvents - a.totalEvents);
 
-      return (
-        <Card style={{ marginBottom:24 }}>
-          {/* Section header */}
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ fontSize:15, fontWeight:700, color:C.text }}>금주 활동 Summary</div>
-              <span style={{ fontSize:11, background:C.accentSoft, color:C.accent, borderRadius:10, padding:"2px 9px", fontWeight:700 }}>{week.label}</span>
+        // 고객사 DB 금주 히스토리
+        const weekClientHistory = (clients||[]).map(client => {
+          const clientDb = (db||{})[String(client.id)] || {};
+          const weekHist = (clientDb.history||[])
+            .filter(h => h.date && h.date >= sw.start && h.date <= sw.end)
+            .sort((a,b) => b.date.localeCompare(a.date));
+          if (weekHist.length === 0) return null;
+          return { client, weekHist };
+        }).filter(Boolean);
+
+        const isEmpty = weeklyActive.length === 0 && weekClientHistory.length === 0;
+
+        const isLast = key === "last";
+
+        return (
+          <Card key={key} style={{ marginBottom:24, opacity: isLast ? 0.92 : 1 }}>
+            {/* Section header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                {/* 금주/전주 뱃지 */}
+                <div style={{ display:"flex", gap:4, background:C.surfaceUp, borderRadius:8, padding:"3px 4px", border:`1px solid ${C.border}` }}>
+                  {[{k:"this",l:"금주"},{k:"last",l:"전주"}].map(t=>(
+                    <span key={t.k} style={{ padding:"3px 10px", borderRadius:6, fontSize:12, fontWeight:700, background:t.k===key?C.surface:"transparent", color:t.k===key?C.text:C.textMuted, boxShadow:t.k===key?"0 1px 3px rgba(0,0,0,.06)":"none" }}>
+                      {t.l}
+                    </span>
+                  ))}
+                </div>
+                <span style={{ fontSize:11, background:isLast?C.surfaceUp:C.accentSoft, color:isLast?C.textMuted:C.accent, borderRadius:10, padding:"2px 9px", fontWeight:700, border:`1px solid ${isLast?C.border:"transparent"}` }}>
+                  {sw.label}
+                </span>
+                {isLast && <span style={{ fontSize:11, color:C.textDim }}>지난 주 활동 내역</span>}
+              </div>
+              <span style={{ fontSize:12, color:C.textMuted }}>
+                {weeklyActive.length > 0 ? `딜 ${weeklyActive.length}건` : ""}{weekClientHistory.length > 0 ? ` · 고객사 ${weekClientHistory.length}곳` : ""}
+              </span>
             </div>
-            <span style={{ fontSize:12, color:C.textMuted }}>활동 있는 딜 {weeklyActive.length}건</span>
-          </div>
 
-          {/* ── 파이프라인 활동 ── */}
-          {weeklyActive.length > 0 && (
-            <div style={{ marginBottom:24 }}>
-              <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>📦 파이프라인 업데이트</div>
-              <div style={{ display:"grid", gap:14 }}>
-                {weeklyActive.map(({ opp, cl, s, weekActivities, weekStageChanges, weekDoneActions, weekPendingActions }) => (
-                  <div key={opp.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 18px" }}>
+            {/* Empty */}
+            {isEmpty && (
+              <div style={{ textAlign:"center", padding:"28px 0", color:C.textMuted, fontSize:13 }}>
+                {isLast ? "전주 기록된 활동이 없습니다" : "이번 주 기록된 활동이 없습니다"}
+              </div>
+            )}
 
-                    {/* Opp header — 클릭 시 파이프라인 이동 */}
-                    <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:14 }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
-                        <div style={{ width:36, height:36, borderRadius:10, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:800, color:C.accent, flexShrink:0 }}>
-                          {cl.name?.[0] || "?"}
+            {/* 파이프라인 업데이트 */}
+            {weeklyActive.length > 0 && (
+              <div style={{ marginBottom: weekClientHistory.length > 0 ? 20 : 0 }}>
+                <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>📦 파이프라인 업데이트</div>
+                <div style={{ display:"grid", gap:12 }}>
+                  {weeklyActive.map(({ opp, cl, s, weekActivities, weekStageChanges, weekDoneActions, weekPendingActions }) => (
+                    <div key={opp.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px 18px" }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
+                          <div style={{ width:34, height:34, borderRadius:9, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:C.accent, flexShrink:0 }}>
+                            {cl.name?.[0] || "?"}
+                          </div>
+                          <div style={{ minWidth:0 }}>
+                            <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)}
+                              style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
+                              <div style={{ fontSize:14, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</div>
+                            </button>
+                            <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>{cl.name} · {opp.owner} 담당</div>
+                          </div>
                         </div>
-                        <div style={{ minWidth:0 }}>
-                          <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)}
-                            style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                            <div style={{ fontSize:14, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</div>
-                          </button>
-                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{cl.name} · {opp.owner} 담당</div>
+                        <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
+                          <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                            <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>
+                            {opp.stage}
+                          </span>
+                          <span style={{ fontSize:13, fontWeight:800, color:s.color }}>{fmt(opp.value)}</span>
                         </div>
                       </div>
-                      <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
-                        <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
-                          <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>
-                          {opp.stage}
-                        </span>
-                        <span style={{ fontSize:14, fontWeight:800, color:s.color }}>{fmt(opp.value)}</span>
-                      </div>
-                    </div>
 
-                    {/* Activity timeline */}
-                    <div style={{ display:"grid", gap:6 }}>
-                      {weekStageChanges.map(h => {
-                        const sc = STAGE_MAP[h.stage] || {};
-                        return (
-                          <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                            <div style={{ width:22, height:22, borderRadius:6, background:`${sc.color}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                              <span style={{ fontSize:9, fontWeight:800, color:sc.color }}>단계</span>
+                      <div style={{ display:"grid", gap:6 }}>
+                        {weekStageChanges.map(h => {
+                          const sc = STAGE_MAP[h.stage] || {};
+                          return (
+                            <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                              <div style={{ width:22, height:22, borderRadius:6, background:`${sc.color||C.accent}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                                <span style={{ fontSize:8, fontWeight:800, color:sc.color||C.accent }}>단계</span>
+                              </div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                                  <span style={{ fontSize:12, fontWeight:700, color:sc.color||C.accent }}>→ {h.stage}</span>
+                                  <span style={{ fontSize:11, color:C.textDim }}>{h.date} · {h.by}</span>
+                                </div>
+                                {h.note && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.5, marginTop:2 }}>{h.note}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {weekActivities.map(a => (
+                          <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                            <div style={{ width:22, height:22, borderRadius:6, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                              <span style={{ fontSize:8, fontWeight:800, color:C.accent }}>활동</span>
                             </div>
                             <div style={{ flex:1 }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
-                                <span style={{ fontSize:12, fontWeight:700, color:sc.color }}>단계 변경 → {h.stage}</span>
-                                <span style={{ fontSize:11, color:C.textDim }}>{h.date}</span>
-                                <span style={{ fontSize:11, color:C.textDim }}>by {h.by}</span>
+                              <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:2 }}>
+                                <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
+                                <span style={{ fontSize:11, color:C.textDim }}>{a.date} · {a.by}</span>
                               </div>
-                              {h.note && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.5 }}>{h.note}</div>}
+                              <div style={{ fontSize:12, color:C.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{a.content}</div>
                             </div>
                           </div>
-                        );
-                      })}
-
-                      {weekActivities.map(a => (
-                        <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                          <div style={{ width:22, height:22, borderRadius:6, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                            <span style={{ fontSize:9, fontWeight:800, color:C.accent }}>활동</span>
-                          </div>
-                          <div style={{ flex:1 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
-                              <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
-                              <span style={{ fontSize:11, color:C.textDim }}>{a.date}</span>
-                              <span style={{ fontSize:11, color:C.textDim }}>by {a.by}</span>
+                        ))}
+                        {weekDoneActions.map(a => (
+                          <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                            <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                              <span style={{ fontSize:10, color:C.green, fontWeight:800 }}>✓</span>
                             </div>
-                            <div style={{ fontSize:12, color:C.text, lineHeight:1.5, whiteSpace:"pre-wrap" }}>{a.content}</div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {weekDoneActions.map(a => (
-                        <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                          <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                            <span style={{ fontSize:11, color:C.green, fontWeight:800 }}>✓</span>
-                          </div>
-                          <div style={{ flex:1 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                              <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{a.title}</span>
-                              <span style={{ fontSize:11, color:C.textDim }}>{a.owner}</span>
-                              <span style={{ fontSize:10, background:`${C.green}15`, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료</span>
+                            <div style={{ flex:1 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{a.title}</span>
+                                <span style={{ fontSize:11, color:C.textDim }}>{a.owner}</span>
+                                <span style={{ fontSize:10, background:`${C.green}15`, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-
-                      {/* 금주 추가된 액션 */}
-                      {actions.filter(a=>a.oppId===opp.id && !a.done && a.dueDate>=week.start && a.dueDate<=week.end && !weekPendingActions.find(p=>p.id===a.id)).map(a=>(
-                        <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                          <div style={{ width:22, height:22, borderRadius:6, background:`${C.yellow}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                            <span style={{ fontSize:9, fontWeight:800, color:C.yellow }}>신규</span>
-                          </div>
-                          <div style={{ flex:1 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                              <span style={{ fontSize:12, color:C.text, fontWeight:600 }}>{a.title}</span>
-                              <span style={{ fontSize:11, color:C.textDim }}>마감 {a.dueDate}</span>
-                              <span style={{ fontSize:10, background:C.yellowSoft, color:C.yellow, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>액션</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {weekPendingActions.length > 0 && (
-                      <div style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
-                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>이번 주 마감 예정</div>
-                        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                          {weekPendingActions.map(a => {
-                            const late = a.dueDate < today();
-                            return (
-                              <span key={a.id} style={{ fontSize:11, background:late?C.redSoft:C.accentSoft, color:late?C.red:C.accent, border:`1px solid ${late?C.red:C.accent}30`, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>
-                                {late?"⚠ ":""}{a.title} ({a.owner})
-                              </span>
-                            );
-                          })}
-                        </div>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {weekPendingActions.length > 0 && (
+                        <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>
+                            {isLast ? "전주 미완료 액션" : "이번 주 마감 예정"}
+                          </div>
+                          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                            {weekPendingActions.map(a => {
+                              const late = a.dueDate < today();
+                              return (
+                                <span key={a.id} style={{ fontSize:11, background:late?C.redSoft:C.accentSoft, color:late?C.red:C.accent, border:`1px solid ${late?C.red:C.accent}30`, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>
+                                  {late?"⚠ ":""}{a.title} ({a.owner})
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* ── 고객사 DB 금주 히스토리 ── */}
-          {(()=>{
-            const weekClientHistory = clients.map(client => {
-              const clientDb = (db||{})[client.id] || {};
-              const weekHist = (clientDb.history||[])
-                .filter(h => h.date >= week.start && h.date <= week.end)
-                .sort((a,b) => b.date.localeCompare(a.date));
-              if (weekHist.length === 0) return null;
-              return { client, weekHist };
-            }).filter(Boolean);
-
-            if (weekClientHistory.length === 0) return null;
-
-            return (
+            {/* 고객사 DB 히스토리 */}
+            {weekClientHistory.length > 0 && (
               <div>
-                <div style={{ height:1, background:C.border, marginBottom:20 }}/>
+                {weeklyActive.length > 0 && <div style={{ height:1, background:C.border, marginBottom:16 }}/>}
                 <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>🏢 고객사 DB 업데이트</div>
                 <div style={{ display:"grid", gap:10 }}>
                   {weekClientHistory.map(({ client, weekHist }) => {
                     const TYPE_CFG = {
-                      "방문미팅": { icon:"🤝", color:"#2563EB" },
-                      "전화통화": { icon:"📞", color:"#16A34A" },
-                      "화상회의": { icon:"💻", color:"#7C3AED" },
-                      "이메일":   { icon:"✉️",  color:"#D97706" },
-                      "식사미팅": { icon:"🍽",  color:"#DB2777" },
-                      "계약체결": { icon:"📝", color:"#16A34A" },
+                      "방문미팅": { icon:"🤝", color:"#2563EB" }, "전화통화": { icon:"📞", color:"#16A34A" },
+                      "화상회의": { icon:"💻", color:"#7C3AED" }, "이메일":   { icon:"✉️",  color:"#D97706" },
+                      "식사미팅": { icon:"🍽",  color:"#DB2777" }, "계약체결": { icon:"📝", color:"#16A34A" },
                       "기타":     { icon:"📌", color:"#6B7280" },
                     };
                     return (
                       <div key={client.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px 18px" }}>
-                        {/* 고객사 헤더 — 클릭 시 고객사 DB 이동 */}
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                            <div style={{ width:32, height:32, borderRadius:8, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:C.green }}>
-                              {client.name[0]}
-                            </div>
+                            <div style={{ width:30, height:30, borderRadius:8, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.green }}>{client.name[0]}</div>
                             <button onClick={()=>onNavigateToClient&&onNavigateToClient(client)}
                               style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                              <div style={{ fontSize:14, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{client.name}</div>
+                              <div style={{ fontSize:13, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{client.name}</div>
                               <div style={{ fontSize:11, color:C.textMuted }}>{client.industry} · {client.owner} 담당</div>
                             </button>
                           </div>
-                          <span style={{ fontSize:11, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>히스토리 {weekHist.length}건</span>
+                          <span style={{ fontSize:11, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{weekHist.length}건</span>
                         </div>
-                        {/* 히스토리 목록 */}
-                        <div style={{ display:"grid", gap:8 }}>
+                        <div style={{ display:"grid", gap:6 }}>
                           {weekHist.map(h => {
                             const tc = TYPE_CFG[h.type] || TYPE_CFG["기타"];
                             return (
-                              <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start", paddingLeft:4 }}>
-                                <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>{tc.icon}</span>
+                              <div key={h.id} style={{ display:"flex", gap:8, alignItems:"flex-start", paddingLeft:4 }}>
+                                <span style={{ fontSize:13, flexShrink:0 }}>{tc.icon}</span>
                                 <div style={{ flex:1 }}>
-                                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+                                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                                     <span style={{ fontSize:11, fontWeight:700, color:tc.color }}>{h.type}</span>
-                                    <span style={{ fontSize:11, color:C.textDim }}>{h.date}</span>
-                                    {h.by && <span style={{ fontSize:11, color:C.textDim }}>by {h.by}</span>}
+                                    <span style={{ fontSize:11, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
                                   </div>
-                                  {h.content && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{h.content.length > 80 ? h.content.slice(0,80)+"…" : h.content}</div>}
+                                  {h.content && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, marginTop:2 }}>{h.content.length > 80 ? h.content.slice(0,80)+"…" : h.content}</div>}
                                 </div>
                               </div>
                             );
@@ -3375,11 +3359,12 @@ ${snap.lastMeetingFocus}
                   })}
                 </div>
               </div>
-            );
-          })()}
-        </Card>
-      );
+            )}
+          </Card>
+        );
+      });
     })()}
+
 
     {/* ── AI 주간 리포트 ── */}
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
