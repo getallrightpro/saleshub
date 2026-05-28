@@ -4569,6 +4569,193 @@ function AdminPanel({ onClose }) {
 }
 
 // ─── USER MENU (nav bar) ──────────────────────────────────────────────────────
+// ─── Notification Center ─────────────────────────────────────────────────────
+function useNotifications({ opps, actions, clients }) {
+  const t = today();
+
+  // 날짜 차이 계산 (일)
+  const daysDiff = (dateStr) => {
+    if (!dateStr) return 999;
+    const diff = Math.floor((new Date(t) - new Date(dateStr)) / 86400000);
+    return diff;
+  };
+
+  const notifs = [];
+
+  // ① 기한 초과 액션 🔴
+  actions.filter(a => !a.done && a.dueDate && a.dueDate < t).forEach(a => {
+    const over = daysDiff(a.dueDate);
+    const opp  = opps.find(o => o.id === a.oppId);
+    notifs.push({
+      id:      `overdue-${a.id}`,
+      type:    "overdue",
+      level:   "red",
+      icon:    "⏰",
+      title:   `기한 초과 — ${a.title}`,
+      desc:    `${over}일 초과 · ${a.owner}${opp ? ` · ${opp.name}` : ""}`,
+      date:    a.dueDate,
+      oppId:   a.oppId,
+      clientId:null,
+    });
+  });
+
+  // ② 장기 미접촉 딜 🟡 (7일 이상 활동 없음, 손실/수주확정 제외)
+  opps.filter(o => o.stage !== "손실" && o.stage !== "수주확정").forEach(opp => {
+    const acts    = opp.activities || [];
+    const stages  = opp.stageHistory || [];
+    const lastAct = [...acts, ...stages]
+      .map(a => a.date).filter(Boolean)
+      .sort().reverse()[0];
+    const days = lastAct ? daysDiff(lastAct) : daysDiff(null);
+    const threshold = 14; // 14일 이상
+    if (days >= threshold) {
+      const cl = clients.find(c => c.id === opp.accountId);
+      notifs.push({
+        id:      `inactive-${opp.id}`,
+        type:    "inactive",
+        level:   days >= 21 ? "red" : "yellow",
+        icon:    "📭",
+        title:   `${days}일째 활동 없음 — ${opp.name}`,
+        desc:    `${cl?.name || ""} · ${opp.stage} · ${opp.owner} 담당`,
+        date:    lastAct || opp.closeDate,
+        oppId:   opp.id,
+        clientId:null,
+      });
+    }
+  });
+
+  // ③ 다음 액션 미설정 딜 🔵 (활성 딜인데 미완료 액션이 없음)
+  opps.filter(o => o.stage !== "손실" && o.stage !== "수주확정").forEach(opp => {
+    const hasAction = actions.some(a => a.oppId === opp.id && !a.done);
+    if (!hasAction) {
+      const cl = clients.find(c => c.id === opp.accountId);
+      notifs.push({
+        id:      `noaction-${opp.id}`,
+        type:    "noaction",
+        level:   "blue",
+        icon:    "📋",
+        title:   `다음 액션 없음 — ${opp.name}`,
+        desc:    `${cl?.name || ""} · ${opp.stage} · ${opp.owner} 담당`,
+        date:    null,
+        oppId:   opp.id,
+        clientId:null,
+      });
+    }
+  });
+
+  // 우선순위 정렬: red → yellow → blue, 같은 레벨은 날짜 오래된 순
+  const order = { red:0, yellow:1, blue:2 };
+  notifs.sort((a,b) => order[a.level] - order[b.level] || (a.date||"9999") < (b.date||"9999") ? -1 : 1);
+
+  return notifs;
+}
+
+function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("all"); // all | red | yellow | blue
+  const notifs = useNotifications({ opps, actions, clients });
+
+  const filtered = filter === "all" ? notifs : notifs.filter(n => n.level === filter);
+  const unread   = notifs.length;
+  const redCount = notifs.filter(n=>n.level==="red").length;
+
+  const LEVEL = {
+    red:    { bg:"#FEF2F2", border:"#FECACA", color:C.red,    label:"긴급" },
+    yellow: { bg:"#FFFBEB", border:"#FDE68A", color:C.yellow, label:"주의" },
+    blue:   { bg:"#EFF6FF", border:"#BFDBFE", color:C.accent, label:"확인" },
+  };
+
+  const handleGo = (n) => {
+    if (n.oppId) {
+      const opp = opps.find(o=>o.id===n.oppId);
+      if (opp) { onNavigateToPipeline(opp); setOpen(false); }
+    }
+  };
+
+  return (
+    <div style={{ position:"relative" }}>
+      {/* 벨 버튼 */}
+      <button onClick={()=>setOpen(o=>!o)} style={{ position:"relative", background:"none", border:`1px solid ${C.border}`, borderRadius:8, width:36, height:36, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:unread>0?C.red:C.textMuted }}>
+        🔔
+        {unread > 0 && (
+          <span style={{ position:"absolute", top:-5, right:-5, minWidth:16, height:16, borderRadius:10, background:redCount>0?C.red:C.yellow, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px", border:"2px solid #fff" }}>
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </button>
+
+      {/* 알림 패널 */}
+      {open && <>
+        <div onClick={()=>setOpen(false)} style={{ position:"fixed", inset:0, zIndex:199 }}/>
+        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, width:380, maxHeight:"70vh", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 12px 40px rgba(0,0,0,.14)", zIndex:200, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+
+          {/* 패널 헤더 */}
+          <div style={{ padding:"16px 18px 12px", borderBottom:`1px solid ${C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text }}>🔔 알림 센터</div>
+              <span style={{ fontSize:11, color:C.textMuted }}>{unread}개</span>
+            </div>
+            {/* 필터 탭 */}
+            <div style={{ display:"flex", gap:6 }}>
+              {[
+                { id:"all",    label:`전체 ${unread}` },
+                { id:"red",    label:`⏰ 긴급 ${notifs.filter(n=>n.level==="red").length}` },
+                { id:"yellow", label:`⚠ 주의 ${notifs.filter(n=>n.level==="yellow").length}` },
+                { id:"blue",   label:`📋 확인 ${notifs.filter(n=>n.level==="blue").length}` },
+              ].map(f=>(
+                <button key={f.id} onClick={()=>setFilter(f.id)} style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${filter===f.id?C.accent:C.border}`, background:filter===f.id?C.accentSoft:"transparent", color:filter===f.id?C.accent:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 알림 목록 */}
+          <div style={{ overflowY:"auto", flex:1 }}>
+            {filtered.length === 0 && (
+              <div style={{ textAlign:"center", padding:"40px 0", color:C.textMuted }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
+                <div style={{ fontSize:13, fontWeight:600 }}>모든 알림 확인 완료!</div>
+              </div>
+            )}
+            {filtered.map(n => {
+              const lv = LEVEL[n.level];
+              return (
+                <div key={n.id} style={{ display:"flex", gap:12, padding:"13px 18px", borderBottom:`1px solid ${C.border}`, cursor:n.oppId?"pointer":"default", background:"transparent", transition:"background .1s" }}
+                  onClick={()=>handleGo(n)}
+                  onMouseEnter={e=>{ if(n.oppId) e.currentTarget.style.background=C.surfaceUp; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
+                  {/* 레벨 인디케이터 */}
+                  <div style={{ width:32, height:32, borderRadius:8, background:lv.bg, border:`1px solid ${lv.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
+                    {n.icon}
+                  </div>
+                  {/* 내용 */}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>{n.title}</div>
+                    <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.4 }}>{n.desc}</div>
+                    {n.date && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{n.date}</div>}
+                  </div>
+                  {/* 이동 화살표 */}
+                  {n.oppId && <span style={{ color:C.textDim, fontSize:12, alignSelf:"center", flexShrink:0 }}>→</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 푸터 */}
+          {unread > 0 && (
+            <div style={{ padding:"10px 18px", borderTop:`1px solid ${C.border}`, background:C.surfaceUp }}>
+              <div style={{ fontSize:11, color:C.textMuted, textAlign:"center" }}>
+                클릭하면 해당 영업기회로 바로 이동합니다
+              </div>
+            </div>
+          )}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function UserMenu() {
   const { instance, accounts } = useMsal();
   const [open, setOpen]      = useState(false);
@@ -4879,7 +5066,9 @@ function App() {
           <span style={{ fontSize:10 }}>{t.icon}</span>{t.label}
           {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{pending}</span>}
         </button>)}
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
+          {/* 알림 센터 */}
+          <NotificationCenter opps={opps} actions={actions} clients={clients} onNavigateToPipeline={handleNavigateToPipeline}/>
           {/* DB status indicator */}
           {!dbReady && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.yellow, display:"inline-block" }}/>데이터 로딩 중...
