@@ -2932,6 +2932,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
   const [loading, setLoading] = useState(false);
   const [copied, setCopied]   = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [buFilter,   setBU]         = useState("전체"); // 사업부 필터
 
   // Week range helper
   const getWeekRange = (offset = 0) => {
@@ -2947,15 +2948,21 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
 
   const week = getWeekRange(weekOffset);
 
+  // 사업부 필터 적용된 opps
+  const filteredOpps = buFilter === "전체" ? opps : opps.filter(o => o.businessUnit === buFilter);
+
   // Build snapshot data for the AI
   const buildSnapshot = () => {
-    const activeOpps   = opps.filter(o => o.stage !== "손실");
-    const wonOpps      = opps.filter(o => o.stage === "수주확정");
-    const lostOpps     = opps.filter(o => o.stage === "손실");
+    const activeOpps   = filteredOpps.filter(o => o.stage !== "손실");
+    const wonOpps      = filteredOpps.filter(o => o.stage === "수주확정");
+    const lostOpps     = filteredOpps.filter(o => o.stage === "손실");
     const totalPipe    = activeOpps.reduce((s,o) => s + o.value, 0);
     const weighted     = activeOpps.reduce((s,o) => s + Math.round(o.value * o.probability / 100), 0);
-    const pendingActs  = actions.filter(a => !a.done);
-    const doneActs     = actions.filter(a => a.done);
+    // 액션도 filteredOpps 기준으로 필터
+    const oppIds       = new Set(filteredOpps.map(o=>o.id));
+    const filteredActs = actions.filter(a => !a.oppId || oppIds.has(a.oppId));
+    const pendingActs  = filteredActs.filter(a => !a.done);
+    const doneActs     = filteredActs.filter(a => a.done);
     const lateActs     = pendingActs.filter(a => a.dueDate && a.dueDate < week.start);
     const weekActs     = pendingActs.filter(a => a.dueDate >= week.start && a.dueDate <= week.end);
     const lastMeeting  = [...meetings].sort((a,b) => b.weekOf.localeCompare(a.weekOf))[0];
@@ -2996,6 +3003,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
 
     const prompt = `당신은 강원에너지 영업팀의 주간 리포트를 작성하는 전문 영업 어시스턴트입니다.
 아래 데이터를 바탕으로 ${snap.weekLabel} 주간 영업 리포트를 작성해주세요.
+${buFilter !== "전체" ? `※ 이 리포트는 [${buFilter}] 사업부 전용입니다.` : "※ 이 리포트는 전체 사업부 통합 기준입니다."}
 
 === 파이프라인 현황 ===
 활성 딜 수: ${snap.activeCount}개
@@ -3046,7 +3054,7 @@ ${snap.lastMeetingFocus}
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6",
           max_tokens: 1500,
           messages: [{ role: "user", content: prompt }]
         })
@@ -3116,7 +3124,7 @@ ${snap.lastMeetingFocus}
 
   return <div>
     {/* Header */}
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
       <div>
         <h2 style={{ margin:0, fontSize:20, fontWeight:800, color:C.text }}>주간 영업 리포트</h2>
         <p style={{ margin:"4px 0 0", fontSize:13, color:C.textMuted }}>AI가 현재 파이프라인과 액션 데이터를 분석해 리포트를 자동 생성합니다</p>
@@ -3132,6 +3140,30 @@ ${snap.lastMeetingFocus}
           {loading ? "생성 중..." : "리포트 생성"}
         </Btn>
       </div>
+    </div>
+
+    {/* 사업부 필터 */}
+    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:20, padding:"10px 14px", background:C.surfaceUp, borderRadius:10, border:`1px solid ${C.border}` }}>
+      <span style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginRight:4 }}>사업부</span>
+      {[{ id:"전체", color:C.accent }, ...BUSINESS_UNITS].map(bu=>{
+        const isSelected = buFilter === bu.id;
+        const color = bu.color || C.accent;
+        return (
+          <button key={bu.id} onClick={()=>setBU(bu.id)} style={{
+            padding:"5px 14px", borderRadius:20, border:`1.5px solid ${isSelected?color:C.border}`,
+            background: isSelected ? `${color}12` : "transparent",
+            color: isSelected ? color : C.textMuted,
+            fontSize:12, fontWeight:isSelected?700:500, cursor:"pointer", transition:"all .15s",
+          }}>
+            {bu.id === "전체" ? "전체" : bu.id}
+          </button>
+        );
+      })}
+      {buFilter !== "전체" && (
+        <span style={{ marginLeft:"auto", fontSize:11, color:C.textMuted }}>
+          {filteredOpps.filter(o=>o.stage!=="손실").length}개 딜 표시 중
+        </span>
+      )}
     </div>
 
     {/* Snapshot cards */}
@@ -3160,7 +3192,7 @@ ${snap.lastMeetingFocus}
       ];
 
       return summaryWeeks.map(({ key, label, range: sw }) => {
-        const weeklyActive = opps.map(opp => {
+        const weeklyActive = filteredOpps.map(opp => {
           const cl = clients.find(c => c.id === opp.accountId) || {};
           const s  = STAGE_MAP[opp.stage] || {};
 
