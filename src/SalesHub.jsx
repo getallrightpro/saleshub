@@ -75,17 +75,18 @@ const THEMES = {
   },
   dark: {
     bg:"#0D1117", surface:"#161B22", surfaceUp:"#1C2128", border:"#30363D",
-    accent:"#3B82F6", accentSoft:"rgba(59,130,246,0.12)", accentGlow:"rgba(59,130,246,0.25)",
-    green:"#22C55E", greenSoft:"rgba(34,197,94,0.10)",
-    yellow:"#F59E0B", yellowSoft:"rgba(245,158,11,0.10)",
-    red:"#F87171",   redSoft:"rgba(248,113,113,0.10)",
-    purple:"#94A3B8", purpleSoft:"rgba(148,163,184,0.10)",
-    cyan:"#64748B",   cyanSoft:"rgba(100,116,139,0.10)",
-    text:"#E6EDF3", textMuted:"#8B949E", textDim:"#484F58",
+    accent:"#58A6FF",  accentSoft:"rgba(88,166,255,0.12)",  accentGlow:"rgba(88,166,255,0.25)",
+    green:"#3FB950",   greenSoft:"rgba(63,185,80,0.12)",
+    yellow:"#F0B429",  yellowSoft:"rgba(240,180,41,0.12)",
+    red:"#F85149",     redSoft:"rgba(248,81,73,0.12)",
+    purple:"#A8B1C2",  purpleSoft:"rgba(168,177,194,0.10)",
+    cyan:"#8B949E",    cyanSoft:"rgba(139,148,158,0.10)",
+    // 다크모드 텍스트 — 더 밝게
+    text:"#E6EDF3", textMuted:"#C9D1D9", textDim:"#8B949E",
     navBg:"#161B22", navBorder:"#30363D",
     inputBg:"#1C2128",
     shadow:"0 1px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2)",
-    shadowHover:"0 0 0 2px rgba(59,130,246,0.25), 0 8px 24px rgba(0,0,0,.4)",
+    shadowHover:"0 0 0 2px rgba(88,166,255,0.25), 0 8px 24px rgba(0,0,0,.4)",
   },
 };
 
@@ -148,6 +149,17 @@ const BUSINESS_UNITS = [
   { id:"신사업",            color:"#92400E" }, // 딥 앰버
 ];
 const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
+
+// 다크모드에서 gray 스테이지 색상 대비 개선
+const stageColor = (color) => {
+  if (_theme !== "dark") return color;
+  // gray 계열을 더 밝게
+  const darkMap = {
+    "#9CA3AF":"#CDD5E0",
+    "#6B7280":"#B0BAC7",
+  };
+  return darkMap[color] || color;
+};
 
 // ─── 영업기회 유형 ────────────────────────────────────────────────────────────
 const OPP_TYPES = [
@@ -221,21 +233,23 @@ const uid    = () => Math.random().toString(36).slice(2,9);
 
 // ─── Atoms ────────────────────────────────────────────────────────────────────
 function StagePill({ stage, size="sm" }) {
-  const s = STAGE_MAP[stage] || {};
+  const s  = STAGE_MAP[stage] || {};
+  const sc = stageColor(s.color);
   const pad = size==="md" ? "4px 12px" : "3px 9px";
   const fs  = size==="md" ? 12 : 11;
-  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:pad, borderRadius:20, fontSize:fs, fontWeight:700, color:s.color, background:`${s.color}18`, border:`1px solid ${s.color}40` }}>
-    <span style={{ width:5, height:5, borderRadius:"50%", background:s.color, flexShrink:0 }}/>{s.label}
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:pad, borderRadius:20, fontSize:fs, fontWeight:700, color:sc, background:`${sc}18`, border:`1px solid ${sc}40` }}>
+    <span style={{ width:5, height:5, borderRadius:"50%", background:sc, flexShrink:0 }}/>{s.label}
   </span>;
 }
 
 function ProbBar({ value, stage }) {
-  const s = STAGE_MAP[stage] || {};
+  const s  = STAGE_MAP[stage] || {};
+  const sc = stageColor(s.color);
   return <div style={{ display:"flex", alignItems:"center", gap:8 }}>
     <div style={{ flex:1, height:4, background:C.border, borderRadius:2, overflow:"hidden" }}>
-      <div style={{ width:`${value}%`, height:"100%", background:s.color||C.accent, borderRadius:2 }}/>
+      <div style={{ width:`${value}%`, height:"100%", background:sc||C.accent, borderRadius:2 }}/>
     </div>
-    <span style={{ fontSize:11, color:s.color||C.accent, fontWeight:700, minWidth:34 }}>{value}%</span>
+    <span style={{ fontSize:11, color:sc||C.accent, fontWeight:700, minWidth:34 }}>{value}%</span>
   </div>;
 }
 
@@ -1510,24 +1524,6 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
         })}
       </div>
 
-      {/* Stage funnel bar */}
-      <Card style={{ marginBottom:20, padding:"16px 22px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-          <span style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", flexShrink:0 }}>단계별 현황</span>
-          <div style={{ display:"flex", gap:12, flex:1, flexWrap:"wrap" }}>
-            {STAGES.map(s=>{
-              const cnt=opps.filter(o=>o.stage===s.id).length;
-              const val=opps.filter(o=>o.stage===s.id).reduce((x,o)=>x+o.value,0);
-              return <div key={s.id} style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ width:7, height:7, borderRadius:"50%", background:s.color, flexShrink:0 }}/>
-                <span style={{ fontSize:12, color:C.textMuted }}>{s.label}</span>
-                <span style={{ fontSize:12, fontWeight:700, color:s.color }}>{cnt}</span>
-                <span style={{ fontSize:11, color:C.textDim }}>({fmt(val)})</span>
-              </div>;
-            })}
-          </div>
-        </div>
-      </Card>
 
       {/* Controls — 두 줄로 분리해서 버튼 잘림 방지 */}
       <div style={{ marginBottom:16 }}>
