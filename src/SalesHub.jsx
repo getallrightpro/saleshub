@@ -58,25 +58,76 @@ const sbPing = async () => {
 };
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
-// 원칙: 파란색 하나가 포인트. 나머지는 의미가 있을 때만 색상 사용.
-const C = {
-  bg:"#F4F5F7", surface:"#FFFFFF", surfaceUp:"#F8F9FB", border:"#E4E6EA",
-
-  // 포인트 컬러 — 버튼, 링크, 강조 (하나만)
-  accent:"#2563EB", accentSoft:"rgba(37,99,235,0.07)", accentGlow:"rgba(37,99,235,0.18)",
-
-  // 시맨틱 — 의미 있을 때만
-  green:"#16A34A", greenSoft:"rgba(22,163,74,0.08)",
-  yellow:"#D97706", yellowSoft:"rgba(217,119,6,0.08)",
-  red:"#DC2626",   redSoft:"rgba(220,38,38,0.08)",
-
-  // 레거시 호환 (기존 purple/cyan 참조하는 곳 → 회색으로)
-  purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
-  cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
-
-  // 텍스트
-  text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
+const THEMES = {
+  light: {
+    bg:"#F4F5F7", surface:"#FFFFFF", surfaceUp:"#F8F9FB", border:"#E4E6EA",
+    accent:"#2563EB", accentSoft:"rgba(37,99,235,0.07)", accentGlow:"rgba(37,99,235,0.18)",
+    green:"#16A34A", greenSoft:"rgba(22,163,74,0.08)",
+    yellow:"#D97706", yellowSoft:"rgba(217,119,6,0.08)",
+    red:"#DC2626",   redSoft:"rgba(220,38,38,0.08)",
+    purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
+    cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
+    text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
+    navBg:"#FFFFFF", navBorder:"#E4E6EA",
+    inputBg:"#F8F9FB",
+    shadow:"0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)",
+    shadowHover:"0 0 0 2px rgba(37,99,235,0.18), 0 8px 24px rgba(0,0,0,.10)",
+  },
+  dark: {
+    bg:"#0D1117", surface:"#161B22", surfaceUp:"#1C2128", border:"#30363D",
+    accent:"#3B82F6", accentSoft:"rgba(59,130,246,0.12)", accentGlow:"rgba(59,130,246,0.25)",
+    green:"#22C55E", greenSoft:"rgba(34,197,94,0.10)",
+    yellow:"#F59E0B", yellowSoft:"rgba(245,158,11,0.10)",
+    red:"#F87171",   redSoft:"rgba(248,113,113,0.10)",
+    purple:"#94A3B8", purpleSoft:"rgba(148,163,184,0.10)",
+    cyan:"#64748B",   cyanSoft:"rgba(100,116,139,0.10)",
+    text:"#E6EDF3", textMuted:"#8B949E", textDim:"#484F58",
+    navBg:"#161B22", navBorder:"#30363D",
+    inputBg:"#1C2128",
+    shadow:"0 1px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2)",
+    shadowHover:"0 0 0 2px rgba(59,130,246,0.25), 0 8px 24px rgba(0,0,0,.4)",
+  },
 };
+
+// 전역 테마 상태 (모듈 레벨 — 컴포넌트 어디서든 접근)
+let _theme = (typeof localStorage !== "undefined" && localStorage.getItem("sh-theme")) || "light";
+let _listeners = [];
+const getC = () => THEMES[_theme];
+let C = getC();
+const setTheme = (t) => {
+  _theme = t;
+  C = getC();
+  if (typeof localStorage !== "undefined") localStorage.setItem("sh-theme", t);
+  _listeners.forEach(fn => fn(t));
+};
+const useTheme = () => {
+  const [t, sT] = useState(_theme);
+  useEffect(() => {
+    const fn = (newT) => { sT(newT); };
+    _listeners.push(fn);
+    return () => { _listeners = _listeners.filter(f=>f!==fn); };
+  }, []);
+  return [t, setTheme];
+};
+
+// ─── Theme Toggle Button ──────────────────────────────────────────────────────
+function ThemeToggle() {
+  const [theme, setT] = useTheme();
+  const isDark = theme === "dark";
+  return (
+    <button
+      onClick={()=>setT(isDark?"light":"dark")}
+      title={isDark?"라이트 모드로 전환":"다크 모드로 전환"}
+      style={{
+        width:36, height:36, borderRadius:8, border:`1px solid ${C.border}`,
+        background:C.surfaceUp, cursor:"pointer", display:"flex", alignItems:"center",
+        justifyContent:"center", fontSize:16, transition:"all .2s",
+        color:C.textMuted,
+      }}>
+      {isDark ? "☀️" : "🌙"}
+    </button>
+  );
+}
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
@@ -192,8 +243,8 @@ function Card({ children, style={}, onClick }) {
   const [h,sH] = useState(false);
   return <div onClick={onClick} onMouseEnter={()=>onClick&&sH(true)} onMouseLeave={()=>sH(false)} style={{
     background:C.surface, border:`1px solid ${h?C.accent:C.border}`, borderRadius:12, padding:"18px 22px",
-    transition:"border-color .2s, box-shadow .2s", cursor:onClick?"pointer":"default",
-    boxShadow:h?`0 0 0 2px ${C.accentGlow},0 8px 24px rgba(0,0,0,.10)`:"0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)",
+    transition:"border-color .2s, box-shadow .2s, background .3s", cursor:onClick?"pointer":"default",
+    boxShadow:h?C.shadowHover:C.shadow,
     ...style,
   }}>{children}</div>;
 }
@@ -549,7 +600,7 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
   };
 
   const inputStyle = {
-    background:"#fff", border:`1.5px solid ${C.accent}`, borderRadius:6,
+    background:C.surface, border:`1.5px solid ${C.accent}`, borderRadius:6,
     padding:"4px 8px", color:C.text, fontSize:14, fontWeight:700,
     outline:"none", width:"100%", fontFamily:"inherit", boxSizing:"border-box",
   };
@@ -782,7 +833,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
                   if(e.key==="Escape"){ setTitleVal(opp.name); setEditingTitle(false); }
                 }}
                 autoFocus
-                style={{ fontSize:20, fontWeight:900, color:C.text, background:"#fff", border:`1.5px solid ${C.accent}`, borderRadius:8, padding:"6px 12px", outline:"none", fontFamily:"inherit", width:420, letterSpacing:"-.02em" }}
+                style={{ fontSize:20, fontWeight:900, color:C.text, background:C.surface, border:`1.5px solid ${C.accent}`, borderRadius:8, padding:"6px 12px", outline:"none", fontFamily:"inherit", width:420, letterSpacing:"-.02em" }}
               />
               <button onClick={()=>{ update({name:titleVal}); setEditingTitle(false); }} style={{ padding:"6px 14px", background:C.accent, color:"#fff", border:"none", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>저장</button>
               <button onClick={()=>{ setTitleVal(opp.name); setEditingTitle(false); }} style={{ padding:"6px 12px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:7, fontSize:12, cursor:"pointer" }}>취소</button>
@@ -1001,7 +1052,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               ) : (
                 <div>
                   {customStrat ? (
-                    <div style={{ background:"#fff", border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px" }}>
+                    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px" }}>
                       <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>✍ 우리 팀 전략</div>
                       <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{customStrat}</div>
                     </div>
@@ -2198,7 +2249,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
                   return (
                     <div key={h.id} style={{ position:"relative", marginBottom: idx < items.length-1 ? 20 : 0 }}>
                       {/* 도트 */}
-                      <div style={{ position:"absolute", left:-28, top:14, width:18, height:18, borderRadius:"50%", background:"#fff", border:`2px solid ${tc.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, boxShadow:`0 0 0 3px ${tc.color}18` }}>
+                      <div style={{ position:"absolute", left:-28, top:14, width:18, height:18, borderRadius:"50%", background:C.surface, border:`2px solid ${tc.color}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, boxShadow:`0 0 0 3px ${tc.color}18` }}>
                         {tc.icon}
                       </div>
 
@@ -2684,7 +2735,7 @@ function Meetings({ meetings, onUpdate }) {
 // ── 액션 템플릿 데이터 ──
 const ACTION_TEMPLATES = [
   {
-    id:"t1", name:"리드 → 초기접촉", stage:"리드", color:"#64748B",
+    id:"t1", name:"리드 → 초기접촉", stage:"리드", color:C.textMuted,
     actions:[
       { title:"고객사 기본 정보 조사 및 Pain Point 분석",  priority:"높음", dayOffset:1 },
       { title:"결정권자 및 이해관계자 파악",               priority:"높음", dayOffset:2 },
@@ -4364,26 +4415,26 @@ function LoginPage() {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
-      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:400, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
+      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:400, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
         {/* Logo */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:32 }}>
           <div style={{ width:44, height:44, borderRadius:12, background:"#3B6FE8", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <span style={{ fontSize:20, fontWeight:900, color:"#fff" }}>S</span>
           </div>
           <div style={{ textAlign:"left" }}>
-            <div style={{ fontSize:20, fontWeight:900, color:"#1E293B", letterSpacing:"-.03em" }}>SalesHub</div>
-            <div style={{ fontSize:10, color:"#64748B", letterSpacing:".10em", textTransform:"uppercase" }}>Kangwon Energy</div>
+            <div style={{ fontSize:20, fontWeight:900, color:C.text, letterSpacing:"-.03em" }}>SalesHub</div>
+            <div style={{ fontSize:10, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase" }}>Kangwon Energy</div>
           </div>
         </div>
 
-        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>로그인</div>
-        <div style={{ fontSize:14, color:"#64748B", marginBottom:32, lineHeight:1.6 }}>
+        <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:8 }}>로그인</div>
+        <div style={{ fontSize:14, color:C.textMuted, marginBottom:32, lineHeight:1.6 }}>
           강원에너지 Microsoft 365 계정으로<br/>로그인하세요
         </div>
 
         {/* MS Login Button */}
-        <button onClick={handleLogin} disabled={loading} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"14px 20px", background:loading?"#E2E8F0":"#fff", border:"1.5px solid #E2E8F0", borderRadius:12, cursor:loading?"not-allowed":"pointer", fontSize:15, fontWeight:600, color:"#1E293B", transition:"all .15s" }}>
+        <button onClick={handleLogin} disabled={loading} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"14px 20px", background:loading?"#E2E8F0":"#fff", border:"1.5px solid #E2E8F0", borderRadius:12, cursor:loading?"not-allowed":"pointer", fontSize:15, fontWeight:600, color:C.text, transition:"all .15s" }}>
           {/* Microsoft Logo SVG */}
           <svg width="20" height="20" viewBox="0 0 21 21" fill="none">
             <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
@@ -4396,7 +4447,7 @@ function LoginPage() {
 
         {error && <div style={{ marginTop:16, padding:"10px 14px", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, fontSize:13, color:"#DC2626" }}>{error}</div>}
 
-        <div style={{ marginTop:28, fontSize:12, color:"#94A3B8", lineHeight:1.6 }}>
+        <div style={{ marginTop:28, fontSize:12, color:C.textDim, lineHeight:1.6 }}>
           강원에너지 임직원만 접근 가능합니다.<br/>
           문의: IT팀
         </div>
@@ -4455,10 +4506,10 @@ function AuthenticatedApp() {
 
 function AccessCheckingPage() {
   return (
-    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
       <div style={{ textAlign:"center" }}>
         <div style={{ width:48, height:48, border:`3px solid #E2E8F0`, borderTop:`3px solid #3B6FE8`, borderRadius:"50%", animation:"spin 1s linear infinite", margin:"0 auto 20px" }}/>
-        <div style={{ fontSize:16, fontWeight:600, color:"#1E293B" }}>접근 권한 확인 중...</div>
+        <div style={{ fontSize:16, fontWeight:600, color:C.text }}>접근 권한 확인 중...</div>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     </div>
@@ -4468,20 +4519,20 @@ function AccessCheckingPage() {
 function AccessPendingPage({ email, name }) {
   const { instance } = useMsal();
   return (
-    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
-      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
         <div style={{ width:64, height:64, borderRadius:"50%", background:"#FEF9C3", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, margin:"0 auto 20px" }}>⏳</div>
-        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>승인 대기 중</div>
-        <div style={{ fontSize:14, color:"#64748B", marginBottom:24, lineHeight:1.7 }}>
-          <strong style={{ color:"#1E293B" }}>{name}</strong>님의 계정이<br/>
+        <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:8 }}>승인 대기 중</div>
+        <div style={{ fontSize:14, color:C.textMuted, marginBottom:24, lineHeight:1.7 }}>
+          <strong style={{ color:C.text }}>{name}</strong>님의 계정이<br/>
           관리자 승인을 기다리고 있습니다.<br/><br/>
-          <span style={{ fontSize:12, color:"#94A3B8" }}>{email}</span>
+          <span style={{ fontSize:12, color:C.textDim }}>{email}</span>
         </div>
-        <div style={{ background:"#F8FAFC", border:"1px solid #E2E8F0", borderRadius:12, padding:"14px 16px", marginBottom:24, fontSize:13, color:"#64748B", lineHeight:1.6 }}>
+        <div style={{ background:C.surfaceUp, border:"1px solid #E2E8F0", borderRadius:12, padding:"14px 16px", marginBottom:24, fontSize:13, color:C.textMuted, lineHeight:1.6 }}>
           관리자(jyshin@psmgroup.co.kr)에게<br/>
           접근 승인을 요청해주세요.
         </div>
-        <button onClick={()=>instance.logoutPopup()} style={{ width:"100%", padding:"12px", background:"transparent", border:"1px solid #E2E8F0", borderRadius:10, fontSize:14, color:"#64748B", cursor:"pointer" }}>
+        <button onClick={()=>instance.logoutPopup()} style={{ width:"100%", padding:"12px", background:"transparent", border:"1px solid #E2E8F0", borderRadius:10, fontSize:14, color:C.textMuted, cursor:"pointer" }}>
           로그아웃
         </button>
       </div>
@@ -4492,11 +4543,11 @@ function AccessPendingPage({ email, name }) {
 function AccessDeniedPage() {
   const { instance } = useMsal();
   return (
-    <div style={{ minHeight:"100vh", background:"#F1F5F9", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
-      <div style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, textAlign:"center" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
+      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, textAlign:"center" }}>
         <div style={{ fontSize:48, marginBottom:16 }}>🚫</div>
-        <div style={{ fontSize:22, fontWeight:800, color:"#1E293B", marginBottom:8 }}>접근 거부됨</div>
-        <div style={{ fontSize:14, color:"#64748B", marginBottom:24 }}>이 계정은 SalesHub 접근이 허용되지 않습니다.</div>
+        <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:8 }}>접근 거부됨</div>
+        <div style={{ fontSize:14, color:C.textMuted, marginBottom:24 }}>이 계정은 SalesHub 접근이 허용되지 않습니다.</div>
         <button onClick={()=>instance.logoutPopup()} style={{ width:"100%", padding:"12px", background:"#EF4444", border:"none", borderRadius:10, fontSize:14, color:"#fff", cursor:"pointer", fontWeight:600 }}>
           로그아웃
         </button>
@@ -5063,6 +5114,14 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
 function App() {
   const isMobile = useIsMobile();
   const { accounts } = useMsal();
+  useTheme(); // 테마 변경 시 App 전체 리렌더링 트리거
+
+  useEffect(() => {
+    document.body.style.background = C.bg;
+    document.body.style.transition = "background .3s, color .3s";
+    document.body.style.color      = C.text;
+  });
+
   const isAdmin = (accounts[0]?.username || "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   const [tab, sT]         = useState("dashboard");
@@ -5294,7 +5353,7 @@ function App() {
 
   const handleSearchNav = (targetTab, opp) => { sT(targetTab); if (opp) setST(opp); };
 
-  return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text }}>
+  return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text, transition:"background .3s, color .3s" }}>
     <div style={{ borderBottom:`1px solid ${C.border}`, padding:"0 32px", background:C.surface, position:"sticky", top:0, zIndex:100, boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
       <div style={{ maxWidth:1400, margin:"0 auto", display:"flex", alignItems:"center" }}>
         <div onClick={()=>navigate("dashboard")} style={{ padding:"14px 0", marginRight:40, display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
@@ -5330,6 +5389,7 @@ function App() {
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>저장됨
           </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
+          <ThemeToggle/>
           <span style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
           <UserMenu/>
         </div>
