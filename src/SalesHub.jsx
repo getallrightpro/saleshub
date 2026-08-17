@@ -1158,84 +1158,141 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
 // ── Kanban Board ──────────────────────────────────────────────────────────────
 function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
-  const [dragging, setDragging] = useState(null);
-  const [dragOver, setDragOver] = useState(null);
+  const [dragging, setDragging]     = useState(null);
+  const [dragOver, setDragOver]     = useState(null);
+  const [cardSize, setCardSize]     = useState("md"); // sm | md
+  const [collapsed, setCollapsed]   = useState({});   // { stageId: true }
 
   const handleDrop = (targetStage) => {
     if (!dragging || dragging.stage === targetStage) { setDragging(null); setDragOver(null); return; }
     const newProb = STAGE_MAP[targetStage]?.prob || 0;
-    const entry = { id:uid(), stage:targetStage, date:today(), note:`칸반 보드에서 ${dragging.stage} → ${targetStage} 이동`, by:dragging.owner };
-    onUpdate(prev=>prev.map(o=>o.id===dragging.id?{...o,stage:targetStage,probability:newProb,stageHistory:[...o.stageHistory,entry]}:o));
+    const entry   = { id:uid(), stage:targetStage, date:today(), note:`칸반 보드에서 ${dragging.stage} → ${targetStage} 이동`, by:dragging.owner };
+    onUpdate(prev=>prev.map(o=>o.id===dragging.id?{...o,stage:targetStage,probability:newProb,stageHistory:[...(o.stageHistory||[]),entry]}:o));
     setDragging(null); setDragOver(null);
   };
 
+  const toggleCollapse = (stageId) => setCollapsed(p=>({...p,[stageId]:!p[stageId]}));
+
   const activeOpps = opps.filter(o=>o.stage!=="손실");
   const lostOpps   = opps.filter(o=>o.stage==="손실");
+  const isSm       = cardSize === "sm";
 
   return <div>
+    {/* Toolbar */}
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8, marginBottom:12 }}>
+      <span style={{ fontSize:11, color:C.textMuted, marginRight:4 }}>카드 크기</span>
+      {[{id:"sm",label:"S"},{id:"md",label:"M"}].map(s=>(
+        <button key={s.id} onClick={()=>setCardSize(s.id)} style={{ width:28, height:28, borderRadius:6, border:`1px solid ${cardSize===s.id?C.accent:C.border}`, background:cardSize===s.id?C.accentSoft:"transparent", color:cardSize===s.id?C.accent:C.textMuted, fontSize:11, fontWeight:700, cursor:"pointer" }}>{s.label}</button>
+      ))}
+      <div style={{ width:1, height:16, background:C.border, margin:"0 4px" }}/>
+      <span style={{ fontSize:11, color:C.textMuted }}>드래그로 단계 변경</span>
+    </div>
+
+    {/* Board */}
     <div style={{ overflowX:"auto", paddingBottom:12 }}>
-      <div style={{ display:"grid", gridTemplateColumns:`repeat(${ACTIVE_STAGES.length},280px)`, gap:12, minWidth:ACTIVE_STAGES.length*292 }}>
+      <div style={{ display:"flex", gap:10, minWidth:"fit-content" }}>
         {ACTIVE_STAGES.map(stage=>{
           const stageOpps = activeOpps.filter(o=>o.stage===stage.id);
           const totalVal  = stageOpps.reduce((s,o)=>s+o.value,0);
           const isOver    = dragOver===stage.id;
+          const isCol     = collapsed[stage.id];
+
           return <div key={stage.id}
             onDragOver={e=>{e.preventDefault();setDragOver(stage.id);}}
             onDragLeave={()=>setDragOver(null)}
             onDrop={()=>handleDrop(stage.id)}
-            style={{ background:isOver?`${stage.color}08`:"#F8FAFC", border:`1px solid ${isOver?stage.color:C.border}`, borderRadius:12, padding:"14px 12px", height:700, display:"flex", flexDirection:"column", transition:"border-color .15s, background .15s" }}>
-            <div style={{ marginBottom:14, flexShrink:0 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ width:8, height:8, borderRadius:"50%", background:stage.color, display:"block" }}/>
-                  <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{stage.label}</span>
-                  <span style={{ fontSize:11, background:`${stage.color}20`, color:stage.color, borderRadius:10, padding:"1px 7px", fontWeight:700 }}>{stageOpps.length}</span>
+            style={{ width:isCol?48:isSm?220:272, flexShrink:0, background:isOver?`${stage.color}06`:C.surfaceUp, border:`1.5px solid ${isOver?stage.color:C.border}`, borderRadius:12, display:"flex", flexDirection:"column", transition:"all .2s", maxHeight:720, minHeight:120 }}>
+
+            {/* Column header */}
+            <div style={{ padding:isCol?"10px 8px":"12px 14px 10px", flexShrink:0, borderBottom:`1px solid ${C.border}`, cursor:"pointer" }} onClick={()=>toggleCollapse(stage.id)}>
+              {isCol ? (
+                // Collapsed — vertical text
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background:stage.color }}/>
+                  <span style={{ fontSize:10, fontWeight:700, color:stage.color, writingMode:"vertical-rl", textOrientation:"mixed", letterSpacing:".05em" }}>{stage.label}</span>
+                  <span style={{ fontSize:10, background:`${stage.color}20`, color:stage.color, borderRadius:10, padding:"2px 4px", fontWeight:800 }}>{stageOpps.length}</span>
                 </div>
-                <span style={{ fontSize:11, color:C.textMuted }}>{stage.prob}%</span>
-              </div>
-              <div style={{ fontSize:12, color:stage.color, fontWeight:700 }}>{fmt(totalVal)}</div>
-            </div>
-            <div style={{ display:"grid", gap:8, alignContent:"start", overflowY:"auto", flex:1, paddingRight:2 }}>
-              {stageOpps.map(o=>{
-                const acc=clients.find(c=>c.id===o.accountId)||{};
-                const late=isLate(o.nextStepDate);
-                return <div key={o.id}
-                  draggable
-                  onDragStart={()=>setDragging(o)}
-                  onDragEnd={()=>{setDragging(null);setDragOver(null);}}
-                  onClick={()=>onSelect(o)}
-                  style={{ background:C.surface, border:`1px solid ${dragging?.id===o.id?stage.color:C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", transition:"box-shadow .15s, border-color .15s", boxShadow:"0 1px 3px rgba(0,0,0,.07)", opacity:dragging?.id===o.id?.5:1 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:4, lineHeight:1.3 }}>{o.name}</div>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10, flexWrap:"wrap" }}>
-                    <span style={{ fontSize:11, color:C.textMuted }}>{acc.name}</span>
-                    {o.businessUnit&&(()=>{
-                      const bu=BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
-                      return bu?<span style={{ fontSize:10, background:`${bu.color}18`, color:bu.color, padding:"1px 6px", borderRadius:6, fontWeight:700 }}>{bu.id}</span>:null;
-                    })()}
-                    {o.oppType&&o.oppType!=="일반수주"&&(()=>{
-                      const tc=OPP_TYPES.find(t=>t.id===o.oppType);
-                      return tc?<span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 6px", borderRadius:6, fontWeight:700 }}>{tc.icon} {tc.label}</span>:null;
-                    })()}
+              ) : (
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ width:7, height:7, borderRadius:"50%", background:stage.color, display:"block", flexShrink:0 }}/>
+                      <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{stage.label}</span>
+                      <span style={{ fontSize:10, background:`${stage.color}18`, color:stage.color, borderRadius:10, padding:"1px 6px", fontWeight:700 }}>{stageOpps.length}</span>
+                    </div>
+                    <button style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:11, padding:0 }}>⟨</button>
                   </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between" }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:stage.color }}>{fmt(totalVal)}</span>
+                    <span style={{ fontSize:10, color:C.textDim }}>{stage.prob}%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Cards */}
+            {!isCol && <div style={{ display:"grid", gap:isSm?6:8, padding:isSm?"8px":"10px", overflowY:"auto", flex:1, alignContent:"start" }}>
+              {stageOpps.map(o=>{
+                const acc  = clients.find(c=>c.id===o.accountId)||{};
+                const late = isLate(o.nextStepDate);
+                const bu   = BUSINESS_UNITS.find(b=>b.id===o.businessUnit);
+                const tc   = o.oppType&&o.oppType!=="일반수주" ? OPP_TYPES.find(t=>t.id===o.oppType) : null;
+                const isDragging = dragging?.id===o.id;
+
+                if (isSm) {
+                  // Small card — compact
+                  return <div key={o.id} draggable onDragStart={()=>setDragging(o)} onDragEnd={()=>{setDragging(null);setDragOver(null);}} onClick={()=>onSelect(o)}
+                    style={{ background:C.surface, border:`1px solid ${isDragging?stage.color:late?"#FCA5A530":C.border}`, borderRadius:8, padding:"9px 12px", cursor:"pointer", opacity:isDragging?.5:1, transition:"box-shadow .15s" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:3, lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"60%" }}>{acc.name}</span>
+                      <span style={{ fontSize:12, fontWeight:800, color:stage.color, flexShrink:0 }}>{fmt(o.value)}</span>
+                    </div>
+                    {bu && <div style={{ marginTop:4 }}><span style={{ fontSize:9, background:`${bu.color}15`, color:bu.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span></div>}
+                  </div>;
+                }
+
+                // Medium card — default
+                return <div key={o.id} draggable onDragStart={()=>setDragging(o)} onDragEnd={()=>{setDragging(null);setDragOver(null);}} onClick={()=>onSelect(o)}
+                  style={{ background:C.surface, border:`1px solid ${isDragging?stage.color:late?C.red+"30":C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", opacity:isDragging?.5:1, transition:"box-shadow .15s, border-color .15s", boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
+                  {/* Title */}
+                  <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:5, lineHeight:1.35 }}>{o.name}</div>
+                  {/* Badges */}
+                  <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
+                    <span style={{ fontSize:10, color:C.textMuted }}>{acc.name}</span>
+                    {bu && <span style={{ fontSize:10, background:`${bu.color}15`, color:bu.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span>}
+                    {tc && <span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{tc.icon}</span>}
+                  </div>
+                  {/* Value + prob bar */}
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
                     <span style={{ fontSize:14, fontWeight:800, color:stage.color }}>{fmt(o.value)}</span>
                     <span style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</span>
                   </div>
-                  {o.nextStep&&<div style={{ fontSize:11, color:late?C.red:C.textMuted, borderTop:`1px solid ${C.border}`, paddingTop:8, display:"flex", gap:4 }}>
+                  <div style={{ height:3, background:C.border, borderRadius:2, marginBottom:8, overflow:"hidden" }}>
+                    <div style={{ width:`${o.probability}%`, height:"100%", background:stage.color, borderRadius:2 }}/>
+                  </div>
+                  {/* Next step */}
+                  {o.nextStep && <div style={{ fontSize:11, color:late?C.red:C.textMuted, display:"flex", gap:4, borderTop:`1px solid ${C.border}`, paddingTop:7 }}>
                     <span style={{ flexShrink:0 }}>{late?"⚠":"→"}</span>
                     <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.nextStep}</span>
                   </div>}
-                  <div style={{ fontSize:10, color:C.textDim, marginTop:6 }}>{o.closeDate} · {o.owner}</div>
+                  <div style={{ fontSize:10, color:C.textDim, marginTop:5, display:"flex", justifyContent:"space-between" }}>
+                    <span>{o.closeDate}</span>
+                    <span>{o.owner}</span>
+                  </div>
                 </div>;
               })}
-              {stageOpps.length===0&&<div style={{ textAlign:"center", padding:"24px 0", color:C.textDim, fontSize:12 }}>딜 없음</div>}
-            </div>
+              {stageOpps.length===0 && (
+                <div style={{ textAlign:"center", padding:"20px 0", color:C.textDim, fontSize:11, border:`1.5px dashed ${C.border}`, borderRadius:8, marginTop:4 }}>비어 있음</div>
+              )}
+            </div>}
           </div>;
         })}
       </div>
     </div>
-    {/* Lost opps strip */}
-    {lostOpps.length>0&&<div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>
+
+    {/* Lost strip */}
+    {lostOpps.length>0 && <div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>
       <div style={{ fontSize:11, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>손실 ({lostOpps.length})</div>
       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         {lostOpps.map(o=>{
@@ -1247,7 +1304,6 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
         })}
       </div>
     </div>}
-    <div style={{ marginTop:8, fontSize:11, color:C.textDim, textAlign:"right" }}>카드를 드래그해서 단계를 변경할 수 있습니다</div>
   </div>;
 }
 
@@ -3217,12 +3273,20 @@ ${snap.lastMeetingFocus}
         }).filter(Boolean).sort((a,b) => b.totalEvents - a.totalEvents);
 
         // 고객사 DB 금주 히스토리
+        // 고객사 DB 히스토리 — 연결된 영업기회의 사업부 기준으로 필터링
         const weekClientHistory = (clients||[]).map(client => {
           const clientDb = (db||{})[String(client.id)] || {};
           const weekHist = (clientDb.history||[])
             .filter(h => h.date && h.date >= sw.start && h.date <= sw.end)
             .sort((a,b) => b.date.localeCompare(a.date));
           if (weekHist.length === 0) return null;
+
+          // 이 고객사와 연결된 영업기회 중 선택된 사업부에 속하는 것이 있는지 확인
+          if (buFilter !== "전체") {
+            const hasMatchingOpp = filteredOpps.some(o => String(o.accountId) === String(client.id));
+            if (!hasMatchingOpp) return null;
+          }
+
           return { client, weekHist };
         }).filter(Boolean);
 
@@ -4848,6 +4912,151 @@ export default function AppRoot() {
 // ─── Admin config ────────────────────────────────────────────────────────────
 const ADMIN_EMAIL = "jyshin@psmgroup.co.kr";
 
+// ─── Quick Input (플로팅 빠른 입력) ─────────────────────────────────────────
+function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
+  const [open,    setOpen]   = useState(false);
+  const [mode,    setMode]   = useState(null);   // "activity" | "action"
+  const [oppId,   setOppId]  = useState("");
+  const [q,       setQ]      = useState("");     // 검색어
+  const [form,    setForm]   = useState({});
+  const [saved,   setSaved]  = useState(false);
+
+  const activeOpps = opps.filter(o=>o.stage!=="손실"&&o.stage!=="수주확정");
+  const filtered   = q ? activeOpps.filter(o=>o.name.includes(q)||(clients.find(c=>c.id===o.accountId)?.name||"").includes(q)) : activeOpps;
+  const selOpp     = opps.find(o=>o.id===oppId);
+  const selClient  = selOpp ? clients.find(c=>c.id===selOpp.accountId) : null;
+
+  const reset = () => { setOpen(false); setMode(null); setOppId(""); setQ(""); setForm({}); setSaved(false); };
+
+  const handleSave = () => {
+    if (!oppId) return;
+    if (mode==="activity") {
+      const a = { id:uid(), date:today(), type:form.type||"방문미팅", content:form.content||"", clientRequest:form.clientRequest||"", by:form.by||"" };
+      onSaveActivity(oppId, a);
+    } else {
+      const a = { id:uid(), oppId, title:form.title||"", owner:form.owner||"", dueDate:form.dueDate||"", priority:form.priority||"중간", done:false };
+      onSaveAction(a);
+    }
+    setSaved(true);
+    setTimeout(reset, 1200);
+  };
+
+  return <>
+    {/* 플로팅 버튼 */}
+    <button onClick={()=>setOpen(true)} style={{ position:"fixed", bottom:28, right:28, width:52, height:52, borderRadius:"50%", background:C.accent, color:"#fff", border:"none", cursor:"pointer", fontSize:24, boxShadow:`0 4px 20px ${C.accentGlow}, 0 2px 8px rgba(0,0,0,.2)`, zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", transition:"transform .15s, box-shadow .15s" }}
+      onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.1)";}}
+      onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
+      ＋
+    </button>
+
+    {/* 모달 */}
+    {open && <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.4)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center", padding:"0 0 80px" }} onClick={reset}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"24px 28px", width:"100%", maxWidth:520, boxShadow:"0 24px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+
+        {saved ? (
+          <div style={{ textAlign:"center", padding:"20px 0" }}>
+            <div style={{ fontSize:36, marginBottom:8 }}>✅</div>
+            <div style={{ fontSize:15, fontWeight:700, color:C.green }}>저장됐습니다!</div>
+          </div>
+        ) : !mode ? (
+          // Step 1 — 모드 선택
+          <div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:4 }}>빠른 입력</div>
+            <div style={{ fontSize:13, color:C.textMuted, marginBottom:20 }}>무엇을 기록할까요?</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <button onClick={()=>setMode("activity")} style={{ padding:"20px", borderRadius:12, border:`1.5px solid ${C.border}`, background:C.surfaceUp, cursor:"pointer", textAlign:"center", transition:"border-color .15s" }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                <div style={{ fontSize:28, marginBottom:8 }}>🤝</div>
+                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>활동 기록</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>미팅, 통화, 이메일</div>
+              </button>
+              <button onClick={()=>setMode("action")} style={{ padding:"20px", borderRadius:12, border:`1.5px solid ${C.border}`, background:C.surfaceUp, cursor:"pointer", textAlign:"center", transition:"border-color .15s" }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
+                <div style={{ fontSize:14, fontWeight:700, color:C.text }}>액션 추가</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>할 일, 마감일 설정</div>
+              </button>
+            </div>
+          </div>
+        ) : !oppId ? (
+          // Step 2 — 딜 선택
+          <div>
+            <button onClick={()=>setMode(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>← 뒤로</button>
+            <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:12 }}>
+              {mode==="activity" ? "🤝 어느 딜에 활동을 기록할까요?" : "📋 어느 딜에 액션을 추가할까요?"}
+            </div>
+            {/* 검색 */}
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="딜 이름 또는 고객사 검색..." autoFocus style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", marginBottom:12, boxSizing:"border-box" }}/>
+            <div style={{ maxHeight:240, overflowY:"auto", display:"grid", gap:6 }}>
+              {filtered.slice(0,8).map(o=>{
+                const cl = clients.find(c=>c.id===o.accountId)||{};
+                const s  = STAGE_MAP[o.stage]||{};
+                return <button key={o.id} onClick={()=>setOppId(o.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, cursor:"pointer", textAlign:"left", fontFamily:"inherit", transition:"border-color .15s" }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{ width:32, height:32, borderRadius:8, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.accent, flexShrink:0 }}>{cl.name?.[0]||"?"}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
+                    <div style={{ fontSize:11, color:C.textMuted }}>{cl.name} · <span style={{ color:s.color }}>{o.stage}</span></div>
+                  </div>
+                  <span style={{ fontSize:12, fontWeight:700, color:s.color, flexShrink:0 }}>{fmt(o.value)}</span>
+                </button>;
+              })}
+              {filtered.length===0 && <div style={{ textAlign:"center", padding:"20px 0", color:C.textMuted, fontSize:13 }}>검색 결과 없음</div>}
+            </div>
+          </div>
+        ) : (
+          // Step 3 — 내용 입력
+          <div>
+            <button onClick={()=>setOppId("")} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>← 뒤로</button>
+            {/* 선택된 딜 */}
+            <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.accentSoft, borderRadius:10, marginBottom:16 }}>
+              <div style={{ width:30, height:30, borderRadius:7, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{selClient?.name?.[0]||"?"}</div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{selOpp?.name}</div>
+                <div style={{ fontSize:11, color:C.textMuted }}>{selClient?.name} · {selOpp?.stage}</div>
+              </div>
+            </div>
+
+            {mode==="activity" ? <>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" }}>
+                <div style={{ marginBottom:12 }}>
+                  <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</label>
+                  <select value={form.type||"방문미팅"} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, outline:"none" }}>
+                    {["방문미팅","전화통화","화상회의","이메일","식사미팅","기타"].map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <Inp label="담당자" value={form.by||""} onChange={v=>setForm(p=>({...p,by:v}))} placeholder="이름"/>
+              </div>
+              <Inp label="활동 내용" value={form.content||""} onChange={v=>setForm(p=>({...p,content:v}))} multiline minHeight={80} placeholder="미팅 내용, 논의 사항 등"/>
+              <Inp label="고객사 요청사항 (선택)" value={form.clientRequest||""} onChange={v=>setForm(p=>({...p,clientRequest:v}))} multiline minHeight={60} placeholder="고객사 요청, 피드백 등"/>
+            </> : <>
+              <Inp label="액션 내용" value={form.title||""} onChange={v=>setForm(p=>({...p,title:v}))} placeholder="예: 견적서 제출"/>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0 12px" }}>
+                <Inp label="담당자" value={form.owner||""} onChange={v=>setForm(p=>({...p,owner:v}))} placeholder="이름"/>
+                <Inp label="마감일" type="date" value={form.dueDate||""} onChange={v=>setForm(p=>({...p,dueDate:v}))}/>
+                <div style={{ marginBottom:16 }}>
+                  <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>우선순위</label>
+                  <select value={form.priority||"중간"} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, outline:"none" }}>
+                    {["높음","중간","낮음"].map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>}
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:4 }}>
+              <button onClick={reset} style={{ padding:"10px 20px", borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>취소</button>
+              <button onClick={handleSave} style={{ padding:"10px 24px", borderRadius:8, border:"none", background:C.accent, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>저장</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>}
+  </>;
+}
+
 function App() {
   const isMobile = useIsMobile();
   const { accounts } = useMsal();
@@ -5134,5 +5343,19 @@ function App() {
     {revEditOpp && <RevDateEditModal opp={revEditOpp} onClose={()=>setRE(null)}
       onSave={d=>{ saveOpps(prev=>prev.map(o=>o.id===revEditOpp.id?{...o,revenueDate:d}:o)); setRE(null); }}
     />}
+    {/* 플로팅 빠른 입력 */}
+    <QuickInput
+      opps={opps}
+      clients={clients}
+      actions={actions}
+      onSaveActivity={(oppId, act) => {
+        saveOpps(prev => prev.map(o => {
+          if (o.id !== oppId) return o;
+          const acts = o.activities || [];
+          return { ...o, activities: [...acts, act].sort((a,b)=>b.date.localeCompare(a.date)) };
+        }));
+      }}
+      onSaveAction={(act) => saveActions(prev=>[...prev, act])}
+    />
   </div>;
 }
