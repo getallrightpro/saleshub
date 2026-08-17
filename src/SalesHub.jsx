@@ -1461,30 +1461,33 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
         </div>
       </Card>
 
-      {/* Controls */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, gap:12 }}>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {["활성","수주확정","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{f}</button>)}
+      {/* Controls — 두 줄로 분리해서 버튼 잘림 방지 */}
+      <div style={{ marginBottom:16 }}>
+        {/* 1행: 단계 필터 + 유형 필터 */}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
+          {["활성","수주확정","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{f}</button>)}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
-          {/* 사업부 필터 */}
-          {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>전체 사업부</button>}
+          {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>전체 사업부</button>}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
-          {/* 영업기회 유형 필터 */}
           {["전체", ...OPP_TYPES.map(t=>t.id)].map(t=>{
             const tc = OPP_TYPES.find(x=>x.id===t);
             return <button key={t} onClick={()=>setTypeFil(t)}
-              style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${typeFilter===t?(tc?.color||C.accent):C.border}`, background:typeFilter===t?`${tc?.color||C.accent}12`:"transparent", color:typeFilter===t?(tc?.color||C.accent):C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>
+              style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${typeFilter===t?(tc?.color||C.accent):C.border}`, background:typeFilter===t?`${tc?.color||C.accent}12`:"transparent", color:typeFilter===t?(tc?.color||C.accent):C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:4 }}>
               {tc&&<span>{tc.icon}</span>}{t}
             </button>;
           })}
-          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
-          {owners.map(o=><button key={o} onClick={()=>setOwner(o)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${ownerFilter===o?C.yellow:C.border}`, background:ownerFilter===o?C.yellowSoft:"transparent", color:ownerFilter===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{o}</button>)}
         </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-            {[{id:"kanban",label:"칸반"},{id:"list",label:"리스트"}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?"#fff":C.textMuted, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"inherit" }}>{v.label}</button>)}
+        {/* 2행: 담당자 필터 + 뷰 전환 + 추가 버튼 */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {owners.map(o=><button key={o} onClick={()=>setOwner(o)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${ownerFilter===o?C.yellow:C.border}`, background:ownerFilter===o?C.yellowSoft:"transparent", color:ownerFilter===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{o}</button>)}
           </div>
-          <Btn onClick={()=>setAddModal(true)}>+ 영업기회 추가</Btn>
+          <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+            <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+              {[{id:"kanban",label:"칸반"},{id:"list",label:"리스트"}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?"#fff":C.textMuted, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{v.label}</button>)}
+            </div>
+            <Btn onClick={()=>setAddModal(true)} style={{ whiteSpace:"nowrap" }}>+ 영업기회 추가</Btn>
+          </div>
         </div>
       </div>
 
