@@ -1446,22 +1446,35 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
 
     {/* ── 영업기회 보드 ── */}
     {pipeTab==="pipeline" && <div>
-      {/* Metrics row */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:16 }}>
+
+      {/* Metrics row — Chartio 스타일 */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:14 }}>
         {[
-          { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent  },
-          { label:"가중 예상 매출",  val:fmt(weighted),   sub:"확률 반영",                color:C.purple  },
-          { label:"누적 수주확정",   val:fmt(wonTotal),   sub:`${wonCount}건`,            color:C.green   },
-          { label:"승률",            val:`${winRate}%`,   sub:`${closedCount}건 마감 기준`,color:winRate>=50?C.green:C.yellow },
-        ].map(m=><Card key={m.label}>
-          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>{m.label}</div>
-          <div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div>
-          <div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div>
-        </Card>)}
+          { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent, icon:"◈" },
+          { label:"가중 예상 매출",  val:fmt(weighted),   sub:"성공 확률 반영",            color:C.purple, icon:"◉" },
+          { label:"누적 수주확정",   val:fmt(wonTotal),   sub:`${wonCount}건 완료`,        color:C.green,  icon:"◎" },
+          { label:"승률",            val:`${winRate}%`,   sub:`${closedCount}건 마감 기준`,color:winRate>=50?C.green:C.yellow, icon:"▦" },
+        ].map(m=>(
+          <div key={m.label} style={{
+            background:C.surface, border:`1px solid ${C.border}`, borderRadius:12,
+            padding:"16px 20px", transition:"background .3s",
+            borderLeft:`3px solid ${m.color}`,
+          }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:C.textMuted }}>{m.label}</div>
+              <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
+            </div>
+            <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
+            <div style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ width:5, height:5, borderRadius:"50%", background:m.color }}/>
+              {m.sub}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* 사업부별 지표 */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:20 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:18 }}>
         {BUSINESS_UNITS.map(bu=>{
           const buOpps    = opps.filter(o=>o.businessUnit===bu.id&&o.stage!=="손실");
           const buActive  = buOpps.filter(o=>o.stage!=="수주확정");
@@ -1471,21 +1484,25 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
           const isSelected = buFilter===bu.id;
           return (
             <div key={bu.id} onClick={()=>setBU(isSelected?"전체":bu.id)}
-              style={{ background:isSelected?`${bu.color}10`:C.surface, border:`1.5px solid ${isSelected?bu.color:C.border}`, borderRadius:12, padding:"14px 16px", cursor:"pointer", transition:"all .15s" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-                <span style={{ width:8, height:8, borderRadius:"50%", background:bu.color }}/>
+              style={{
+                background:isSelected?`${bu.color}10`:C.surfaceUp,
+                border:`1.5px solid ${isSelected?bu.color:C.border}`,
+                borderRadius:10, padding:"12px 14px", cursor:"pointer", transition:"all .15s",
+              }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                <span style={{ width:6, height:6, borderRadius:"50%", background:bu.color, flexShrink:0 }}/>
                 <span style={{ fontSize:12, fontWeight:700, color:isSelected?bu.color:C.text }}>{bu.id}</span>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                 <div>
                   <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
-                  <div style={{ fontSize:13, fontWeight:800, color:bu.color }}>{fmt(buPipe)}</div>
-                  <div style={{ fontSize:10, color:C.textMuted }}>{buActive.length}건</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:bu.color }}>{fmt(buPipe)}</div>
+                  <div style={{ fontSize:10, color:C.textDim }}>{buActive.length}건</div>
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>수주확정</div>
-                  <div style={{ fontSize:13, fontWeight:800, color:C.green }}>{fmt(buWonVal)}</div>
-                  <div style={{ fontSize:10, color:C.textMuted }}>{buWon.length}건</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.green }}>{fmt(buWonVal)}</div>
+                  <div style={{ fontSize:10, color:C.textDim }}>{buWon.length}건</div>
                 </div>
               </div>
             </div>
@@ -2640,13 +2657,29 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
 
     {/* ── 영업 현황 ── */}
     {dashTab==="overview" && <div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:28 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 딜 (손실 제외)`,    color:C.accent },
-          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                                color:C.purple },
-          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green  },
-          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,               color:late.length?C.red:C.yellow },
-        ].map(m=><Card key={m.label}><div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>{m.label}</div><div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div><div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div></Card>)}
+          { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 딜 (손실 제외)`, color:C.accent, icon:"◈" },
+          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                              color:C.purple, icon:"◉" },
+          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green, icon:"◎" },
+          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,             color:late.length?C.red:C.yellow, icon:"▦" },
+        ].map(m=>(
+          <div key={m.label} style={{
+            background:C.surface, border:`1px solid ${C.border}`, borderRadius:12,
+            padding:"16px 20px", transition:"background .3s",
+            borderLeft:`3px solid ${m.color}`,
+          }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:C.textMuted }}>{m.label}</div>
+              <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
+            </div>
+            <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
+            <div style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ width:5, height:5, borderRadius:"50%", background:m.color }}/>
+              {m.sub}
+            </div>
+          </div>
+        ))}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
         <Card>
