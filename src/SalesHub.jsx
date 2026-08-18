@@ -4886,21 +4886,44 @@ function useNotifications({ opps, actions, clients }) {
 }
 
 function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("all"); // all | red | yellow | blue
-  const notifs = useNotifications({ opps, actions, clients });
+  const [open,    setOpen]   = useState(false);
+  const [filter,  setFilter] = useState("all");
+  const [readIds, setReadIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("sh-notif-read")||"[]")); }
+    catch { return new Set(); }
+  });
 
-  const filtered = filter === "all" ? notifs : notifs.filter(n => n.level === filter);
-  const unread   = notifs.length;
-  const redCount = notifs.filter(n=>n.level==="red").length;
+  const notifs  = useNotifications({ opps, actions, clients });
+  const unreadNotifs = notifs.filter(n => !readIds.has(n.id));
+  const filtered = (filter === "all" ? notifs : notifs.filter(n=>n.level===filter));
+  const unread   = unreadNotifs.length;
+  const redCount = unreadNotifs.filter(n=>n.level==="red").length;
+
+  const markRead = (id) => {
+    setReadIds(prev => {
+      const next = new Set([...prev, id]);
+      localStorage.setItem("sh-notif-read", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const markAllRead = () => {
+    const allIds = notifs.map(n=>n.id);
+    setReadIds(prev => {
+      const next = new Set([...prev, ...allIds]);
+      localStorage.setItem("sh-notif-read", JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const LEVEL = {
-    red:    { bg:"#FEF2F2", border:"#FECACA", color:C.red,    label:"긴급" },
-    yellow: { bg:"#FFFBEB", border:"#FDE68A", color:C.yellow, label:"주의" },
-    blue:   { bg:"#EFF6FF", border:"#BFDBFE", color:C.accent, label:"확인" },
+    red:    { bg:C.redSoft,    border:`${C.red}30`,    color:C.red    },
+    yellow: { bg:C.yellowSoft, border:`${C.yellow}30`, color:C.yellow },
+    blue:   { bg:C.accentSoft, border:`${C.accent}30`, color:C.accent },
   };
 
   const handleGo = (n) => {
+    markRead(n.id);
     if (n.oppId) {
       const opp = opps.find(o=>o.id===n.oppId);
       if (opp) { onNavigateToPipeline(opp); setOpen(false); }
@@ -4910,10 +4933,10 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
   return (
     <div style={{ position:"relative" }}>
       {/* 벨 버튼 */}
-      <button onClick={()=>setOpen(o=>!o)} style={{ position:"relative", background:"none", border:`1px solid ${C.border}`, borderRadius:8, width:36, height:36, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:unread>0?C.red:C.textMuted }}>
+      <button onClick={()=>setOpen(o=>!o)} style={{ position:"relative", background:"none", border:`1px solid ${C.border}`, borderRadius:8, width:36, height:36, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:unread>0?C.red:C.textMuted, transition:"color .2s" }}>
         🔔
         {unread > 0 && (
-          <span style={{ position:"absolute", top:-5, right:-5, minWidth:16, height:16, borderRadius:10, background:redCount>0?C.red:C.yellow, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px", border:"2px solid #fff" }}>
+          <span style={{ position:"absolute", top:-5, right:-5, minWidth:16, height:16, borderRadius:10, background:redCount>0?C.red:C.yellow, color:"#fff", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px", border:`2px solid ${C.surface}` }}>
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -4922,18 +4945,26 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
       {/* 알림 패널 */}
       {open && <>
         <div onClick={()=>setOpen(false)} style={{ position:"fixed", inset:0, zIndex:199 }}/>
-        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, width:380, maxHeight:"70vh", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 12px 40px rgba(0,0,0,.14)", zIndex:200, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, width:390, maxHeight:"70vh", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 12px 40px rgba(0,0,0,.18)", zIndex:200, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
           {/* 패널 헤더 */}
           <div style={{ padding:"16px 18px 12px", borderBottom:`1px solid ${C.border}` }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-              <div style={{ fontSize:14, fontWeight:700, color:C.text }}>🔔 알림 센터</div>
-              <span style={{ fontSize:11, color:C.textMuted }}>{unread}개</span>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text }}>
+                🔔 알림 센터
+                {unread > 0 && <span style={{ marginLeft:8, fontSize:11, background:redCount>0?C.redSoft:C.yellowSoft, color:redCount>0?C.red:C.yellow, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>미확인 {unread}개</span>}
+              </div>
+              {/* 모두 읽음 버튼 */}
+              {unread > 0 && (
+                <button onClick={markAllRead} style={{ fontSize:11, color:C.accent, background:"none", border:"none", cursor:"pointer", fontWeight:600, fontFamily:"inherit", padding:"4px 8px", borderRadius:6, border:`1px solid ${C.accent}30` }}>
+                  ✓ 모두 확인
+                </button>
+              )}
             </div>
             {/* 필터 탭 */}
             <div style={{ display:"flex", gap:6 }}>
               {[
-                { id:"all",    label:`전체 ${unread}` },
+                { id:"all",    label:`전체 ${notifs.length}` },
                 { id:"red",    label:`⏰ 긴급 ${notifs.filter(n=>n.level==="red").length}` },
                 { id:"yellow", label:`⚠ 주의 ${notifs.filter(n=>n.level==="yellow").length}` },
                 { id:"blue",   label:`📋 확인 ${notifs.filter(n=>n.level==="blue").length}` },
@@ -4954,37 +4985,56 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
               </div>
             )}
             {filtered.map(n => {
-              const lv = LEVEL[n.level];
+              const lv   = LEVEL[n.level];
+              const isRead = readIds.has(n.id);
               return (
-                <div key={n.id} style={{ display:"flex", gap:12, padding:"13px 18px", borderBottom:`1px solid ${C.border}`, cursor:n.oppId?"pointer":"default", background:"transparent", transition:"background .1s" }}
+                <div key={n.id}
+                  style={{ display:"flex", gap:12, padding:"13px 18px", borderBottom:`1px solid ${C.border}`, cursor:n.oppId?"pointer":"default", background:isRead?C.surfaceUp:"transparent", transition:"background .15s", opacity:isRead?.65:1 }}
                   onClick={()=>handleGo(n)}
                   onMouseEnter={e=>{ if(n.oppId) e.currentTarget.style.background=C.surfaceUp; }}
-                  onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
-                  {/* 레벨 인디케이터 */}
-                  <div style={{ width:32, height:32, borderRadius:8, background:lv.bg, border:`1px solid ${lv.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
-                    {n.icon}
+                  onMouseLeave={e=>{ e.currentTarget.style.background=isRead?C.surfaceUp:"transparent"; }}>
+
+                  {/* 미확인 도트 */}
+                  <div style={{ position:"relative", flexShrink:0 }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:lv.bg, border:`1px solid ${lv.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 }}>
+                      {n.icon}
+                    </div>
+                    {!isRead && <span style={{ position:"absolute", top:-3, right:-3, width:8, height:8, borderRadius:"50%", background:lv.color, border:`2px solid ${C.surface}` }}/>}
                   </div>
+
                   {/* 내용 */}
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:2 }}>{n.title}</div>
+                    <div style={{ fontSize:12, fontWeight:isRead?500:700, color:isRead?C.textMuted:C.text, marginBottom:2 }}>{n.title}</div>
                     <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.4 }}>{n.desc}</div>
                     {n.date && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{n.date}</div>}
                   </div>
-                  {/* 이동 화살표 */}
-                  {n.oppId && <span style={{ color:C.textDim, fontSize:12, alignSelf:"center", flexShrink:0 }}>→</span>}
+
+                  {/* 이동 or 확인 */}
+                  <div style={{ display:"flex", flexDirection:"column", gap:4, alignSelf:"center", flexShrink:0 }}>
+                    {n.oppId && <span style={{ color:isRead?C.textDim:C.accent, fontSize:12 }}>→</span>}
+                    {!isRead && (
+                      <button onClick={e=>{ e.stopPropagation(); markRead(n.id); }}
+                        style={{ fontSize:9, color:C.textDim, background:"none", border:`1px solid ${C.border}`, borderRadius:4, padding:"2px 5px", cursor:"pointer", fontFamily:"inherit", lineHeight:1 }}>
+                        읽음
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
 
           {/* 푸터 */}
-          {unread > 0 && (
-            <div style={{ padding:"10px 18px", borderTop:`1px solid ${C.border}`, background:C.surfaceUp }}>
-              <div style={{ fontSize:11, color:C.textMuted, textAlign:"center" }}>
-                클릭하면 해당 영업기회로 바로 이동합니다
-              </div>
+          <div style={{ padding:"10px 18px", borderTop:`1px solid ${C.border}`, background:C.surfaceUp, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:11, color:C.textMuted }}>
+              {unread > 0 ? `미확인 ${unread}개 · ` : "모두 확인됨 · "}클릭하면 딜로 이동
             </div>
-          )}
+            {notifs.length > 0 && unread === 0 && (
+              <button onClick={()=>{ setReadIds(new Set()); localStorage.removeItem("sh-notif-read"); }} style={{ fontSize:11, color:C.textDim, background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                초기화
+              </button>
+            )}
+          </div>
         </div>
       </>}
     </div>
