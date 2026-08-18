@@ -762,7 +762,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const [fileModal, setFM]    = useState(false);
   const [stageModal, setSM]   = useState(false);
   const [editing, setEdit]    = useState(false);
-  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"" });
+  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"", oppType:opp.oppType||"일반수주" });
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal,     setTitleVal]     = useState(opp.name);
   const [editingStage, setES]           = useState(null);
@@ -797,9 +797,27 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       if (o.id !== opp.id) return o;
       return { ...o, stage:newStage, probability:prob, stageHistory:[...(o.stageHistory||[]), entry] };
     }));
-    if (opp.oppType==="고객사등록" && newStage==="수주확정" && opp.accountId) {
-      sbUpsert("clients_db", String(opp.accountId), { avlStatus:"심사중", avlUpdatedAt: today() });
+
+    // 고객사등록 유형 딜의 단계 변경 시 AVL 자동 업데이트
+    if (opp.oppType==="고객사등록" && opp.accountId) {
+      if (newStage==="수주확정") {
+        // 수주확정 → AVL 등록완료 + 완료일 기록
+        sbUpsert("clients_db", String(opp.accountId), {
+          avlStatus:    "등록완료",
+          avlUpdatedAt:  today(),
+          avlCompletedAt: today(),
+          avlOppId:      opp.id,
+          avlOppName:    opp.name,
+        });
+      } else if (newStage==="견적검토/협상" || newStage==="재견적") {
+        // 협상 단계 진입 → 심사중으로 변경
+        sbUpsert("clients_db", String(opp.accountId), {
+          avlStatus:    "심사중",
+          avlUpdatedAt:  today(),
+        });
+      }
     }
+
     setSM(false);
   };
 
@@ -937,6 +955,24 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           </div>
           <Inp label="담당자" value={editForm.owner} onChange={v=>setEF(p=>({...p,owner:v}))}/>
         </div>
+
+        {/* 영업기회 유형 — 관리자만 수정 가능 */}
+        {isAdmin && (
+          <div style={{ marginBottom:16 }}>
+            <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>
+              영업기회 유형 <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, marginLeft:4 }}>관리자</span>
+            </label>
+            <div style={{ display:"flex", gap:8 }}>
+              {OPP_TYPES.map(t=>(
+                <button key={t.id} type="button" onClick={()=>setEF(p=>({...p,oppType:t.id}))}
+                  style={{ flex:1, padding:"9px 12px", borderRadius:8, border:`1.5px solid ${editForm.oppType===t.id?t.color:C.border}`, background:editForm.oppType===t.id?`${t.color}10`:"transparent", color:editForm.oppType===t.id?t.color:C.textMuted, fontSize:12, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                  <span>{t.icon}</span>{t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Inp label="다음 액션" value={editForm.nextStep} onChange={v=>setEF(p=>({...p,nextStep:v}))}/>
         <Inp label="다음 액션 일정" type="date" value={editForm.nextStepDate} onChange={v=>setEF(p=>({...p,nextStepDate:v}))}/>
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
@@ -981,7 +1017,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
-        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||""});setEdit(true);}}>✏ 수정</Btn>
+        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||"",oppType:opp.oppType||"일반수주"});setEdit(true);}}>✏ 수정</Btn>
       </div>}
     </div>}
 
@@ -2160,7 +2196,18 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
                 style={{ background:avl.bg, border:`1.5px solid ${avl.color}40`, color:avl.color, borderRadius:8, padding:"5px 12px", fontSize:12, fontWeight:700, outline:"none", cursor:"pointer" }}>
                 {AVL_STATUS.map(a=><option key={a.id} value={a.id}>{a.id}</option>)}
               </select>
-              {data.avlUpdatedAt && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{data.avlUpdatedAt} 업데이트</div>}
+              {/* 업데이트 날짜 */}
+              {data.avlUpdatedAt && (
+                <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>
+                  {data.avlStatus==="등록완료" ? "✅ 완료" : "업데이트"} {data.avlUpdatedAt}
+                </div>
+              )}
+              {/* 등록완료 시 연결된 딜 표시 */}
+              {data.avlStatus==="등록완료" && data.avlOppName && (
+                <div style={{ fontSize:10, color:C.accent, marginTop:2, maxWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  📦 {data.avlOppName}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -2555,7 +2602,16 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
               {(()=>{
                 const avl = AVL_STATUS.find(a=>a.id===(d.avlStatus||"미등록"));
                 if (!avl || d.avlStatus==="미등록") return null;
-                return <span style={{ fontSize:10, background:avl.bg, color:avl.color, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>AVL {avl.id}</span>;
+                return (
+                  <div style={{ textAlign:"right" }}>
+                    <span style={{ fontSize:10, background:avl.bg, color:avl.color, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>
+                      AVL {avl.id}
+                    </span>
+                    {d.avlStatus==="등록완료" && d.avlCompletedAt && (
+                      <div style={{ fontSize:9, color:C.textDim, marginTop:2 }}>{d.avlCompletedAt} 완료</div>
+                    )}
+                  </div>
+                );
               })()}
             </div>
           </Card>;
