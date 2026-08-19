@@ -60,33 +60,51 @@ const sbPing = async () => {
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const THEMES = {
   light: {
+    // 배경 레이어
     bg:"#F4F5F7", surface:"#FFFFFF", surfaceUp:"#F8F9FB", border:"#E4E6EA",
+    // 포인트
     accent:"#2563EB", accentSoft:"rgba(37,99,235,0.07)", accentGlow:"rgba(37,99,235,0.18)",
+    // 시맨틱
     green:"#16A34A", greenSoft:"rgba(22,163,74,0.08)",
     yellow:"#D97706", yellowSoft:"rgba(217,119,6,0.08)",
     red:"#DC2626",   redSoft:"rgba(220,38,38,0.08)",
     purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
     cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
-    text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
+    // 텍스트
+    text:"#1A202C", textMuted:C.textMuted, textDim:"#9CA3AF",
+    // 컴포넌트
     navBg:"#FFFFFF", navBorder:"#E4E6EA",
     inputBg:"#F8F9FB",
+    modalOverlay:"rgba(15,23,42,0.5)",
     shadow:"0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)",
     shadowHover:"0 0 0 2px rgba(37,99,235,0.18), 0 8px 24px rgba(0,0,0,.10)",
+    shadowModal:C.shadowModal,
+    // 버튼 텍스트
+    btnText:"#FFFFFF",
   },
   dark: {
-    bg:"#0D1117", surface:"#161B22", surfaceUp:"#1C2128", border:"#30363D",
-    accent:"#58A6FF",  accentSoft:"rgba(88,166,255,0.12)",  accentGlow:"rgba(88,166,255,0.25)",
-    green:"#3FB950",   greenSoft:"rgba(63,185,80,0.12)",
-    yellow:"#F0B429",  yellowSoft:"rgba(240,180,41,0.12)",
-    red:"#F85149",     redSoft:"rgba(248,81,73,0.12)",
-    purple:"#A8B1C2",  purpleSoft:"rgba(168,177,194,0.10)",
-    cyan:"#8B949E",    cyanSoft:"rgba(139,148,158,0.10)",
-    // 다크모드 텍스트 — 더 밝게
-    text:"#E6EDF3", textMuted:"#C9D1D9", textDim:"#8B949E",
-    navBg:"#161B22", navBorder:"#30363D",
-    inputBg:"#1C2128",
-    shadow:"0 1px 4px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2)",
-    shadowHover:"0 0 0 2px rgba(88,166,255,0.25), 0 8px 24px rgba(0,0,0,.4)",
+    // 배경 레이어 — GitHub Dark 수준
+    bg:"#0D1117", surface:"#161B22", surfaceUp:"#21262D", border:"#3D444D",
+    // 포인트 — 다크에서 더 밝게
+    accent:"#58A6FF", accentSoft:"rgba(88,166,255,0.15)", accentGlow:"rgba(88,166,255,0.30)",
+    // 시맨틱 — WCAG AA 기준 충족 밝기
+    green:"#3FB950",  greenSoft:"rgba(63,185,80,0.15)",
+    yellow:"#E3B341", yellowSoft:"rgba(227,179,65,0.15)",
+    red:"#F85149",    redSoft:"rgba(248,81,73,0.15)",
+    purple:"#C9D1D9", purpleSoft:"rgba(201,209,217,0.10)",
+    cyan:"#A8B1C2",   cyanSoft:"rgba(168,177,194,0.10)",
+    // 텍스트 — 다크에서 충분한 contrast
+    text:"#E6EDF3",       // 주 텍스트 — 거의 흰색
+    textMuted:"#C9D1D9",  // 보조 텍스트 — 밝은 회색
+    textDim:"#8B949E",    // 힌트 텍스트 — 중간 회색 (이전보다 밝음)
+    // 컴포넌트
+    navBg:"#161B22", navBorder:"#3D444D",
+    inputBg:"#21262D",
+    modalOverlay:"rgba(0,0,0,0.7)",
+    shadow:"0 1px 4px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3)",
+    shadowHover:"0 0 0 2px rgba(88,166,255,0.30), 0 8px 24px rgba(0,0,0,.5)",
+    shadowModal:"0 24px 60px rgba(0,0,0,.6)",
+    btnText:"#FFFFFF",
   },
 };
 
@@ -132,28 +150,27 @@ function ThemeToggle() {
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id:"리드",         label:"리드",         prob:5,   color:"#9CA3AF" },
-  { id:"초기접촉",     label:"초기접촉",     prob:15,  color:"#6B7280" },
-  { id:"기술협의",     label:"기술협의",     prob:30,  color:"#3B82F6" },
-  { id:"초도견적",     label:"초도견적",     prob:45,  color:"#2563EB" },
-  { id:"재견적",       label:"재견적",       prob:60,  color:"#1E40AF" },
-  { id:"견적검토/협상",label:"견적검토/협상",prob:80,  color:"#1D4ED8" },
-  { id:"수주확정",     label:"수주확정",     prob:100, color:"#16A34A" },
-  { id:"손실",         label:"손실",         prob:0,   color:"#DC2626" },
+  { id:"리드",         label:"리드",         prob:5,   color:C.textDim },
+  { id:"초기접촉",     label:"초기접촉",     prob:15,  color:C.textMuted },
+  { id:"기술협의",     label:"기술협의",     prob:30,  color:C.accent },
+  { id:"초도견적",     label:"초도견적",     prob:45,  color:C.accent },
+  { id:"재견적",       label:"재견적",       prob:60,  color:C.accent },
+  { id:"견적검토/협상",label:"견적검토/협상",prob:80,  color:C.accent },
+  { id:"수주확정",     label:"수주확정",     prob:100, color:C.green },
+  { id:"손실",         label:"손실",         prob:0,   color:C.red },
 ];
 // ─── Business Units ──────────────────────────────────────────────────────────
 const BUSINESS_UNITS = [
-  { id:"산업용S/G",        color:"#1D4ED8" }, // 딥 블루
-  { id:"2차전지/반도체EPC", color:"#374151" }, // 차콜 그레이
-  { id:"리튬소재",          color:"#065F46" }, // 딥 그린
-  { id:"신사업",            color:"#92400E" }, // 딥 앰버
+  { id:"산업용S/G",        color:C.accent }, // 딥 블루
+  { id:"2차전지/반도체EPC", color:C.textMuted }, // 차콜 그레이
+  { id:"리튬소재",          color:"#34D399" }, // 딥 그린
+  { id:"신사업",            color:"#FBBF24" }, // 딥 앰버
 ];
 const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
 
-// 다크모드에서 gray 스테이지 색상 대비 개선
+// 다크모드 색상 보정 헬퍼 — 어두운 색을 밝게
 const stageColor = (color) => {
   if (_theme !== "dark") return color;
-  // gray 계열을 더 밝게
   const darkMap = {
     "#9CA3AF":"#CDD5E0",
     "#6B7280":"#B0BAC7",
@@ -161,18 +178,29 @@ const stageColor = (color) => {
   return darkMap[color] || color;
 };
 
+const buColor = (color) => {
+  if (_theme !== "dark") return color;
+  const darkMap = {
+    "#1D4ED8":"#60A5FA",
+    "#374151":"#9CA3AF",
+    "#065F46":"#34D399",
+    "#92400E":"#FBBF24",
+  };
+  return darkMap[color] || color;
+};
+
 // ─── 영업기회 유형 ────────────────────────────────────────────────────────────
 const OPP_TYPES = [
-  { id:"일반수주",    label:"일반수주",    color:"#2563EB", icon:"📦" },
-  { id:"고객사등록",  label:"고객사등록",  color:"#065F46", icon:"🏭" },
-  { id:"초도품납품",  label:"초도품납품",  color:"#92400E", icon:"🔬" },
+  { id:"일반수주",    label:"일반수주",    color:C.accent, icon:"📦" },
+  { id:"고객사등록",  label:"고객사등록",  color:"#34D399", icon:"🏭" },
+  { id:"초도품납품",  label:"초도품납품",  color:"#FBBF24", icon:"🔬" },
 ];
 
 // ─── AVL 등록 상태 ────────────────────────────────────────────────────────────
 const AVL_STATUS = [
-  { id:"미등록",  label:"미등록",  color:"#6B7280", bg:"rgba(107,114,128,0.08)" },
-  { id:"심사중",  label:"심사중",  color:"#D97706", bg:"rgba(217,119,6,0.10)"   },
-  { id:"등록완료",label:"등록완료",color:"#16A34A", bg:"rgba(22,163,74,0.10)"   },
+  { id:"미등록",  label:"미등록",  color:C.textMuted, bg:"rgba(107,114,128,0.08)" },
+  { id:"심사중",  label:"심사중",  color:C.yellow, bg:"rgba(217,119,6,0.10)"   },
+  { id:"등록완료",label:"등록완료",color:C.green, bg:"rgba(22,163,74,0.10)"   },
 ];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
 
@@ -265,7 +293,7 @@ function Card({ children, style={}, onClick }) {
 
 function Modal({ title, onClose, children }) {
   return <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.45)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={onClose}>
-    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:700, maxHeight:"88vh", overflow:"auto", padding:"28px 32px", boxShadow:"0 24px 60px rgba(0,0,0,.18)" }} onClick={e=>e.stopPropagation()}>
+    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:700, maxHeight:"88vh", overflow:"auto", padding:"28px 32px", boxShadow:C.shadowModal }} onClick={e=>e.stopPropagation()}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
         <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:C.text }}>{title}</h2>
         <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20, padding:4 }}>✕</button>
@@ -285,11 +313,12 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
   }, [value, composing]);
 
   const s = {
-    width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`,
+    width:"100%", background:C.inputBg, border:`1px solid ${C.border}`,
     borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14,
     outline:"none", resize:multiline?"vertical":"none",
     minHeight: multiline ? (minHeight||100) : "auto",
     fontFamily:"inherit", boxSizing:"border-box", lineHeight:1.7,
+    transition:"border-color .15s, background .3s",
   };
 
   return <div style={{ marginBottom:16 }}>
@@ -334,7 +363,7 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
 function Sel({ label, value, onChange, options }) {
   return <div style={{ marginBottom:16 }}>
     {label&&<label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
-    <select value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
       {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
     </select>
   </div>;
@@ -458,7 +487,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
       <div style={{ marginBottom:16 }}>
         <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자</label>
         {users.length > 0 ? (
-          <select value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+          <select value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
             <option value="">— 선택 —</option>
             {users.map(u=>{
               const displayName = (u.name && u.name !== u.email) ? u.name : u.email.split("@")[0];
@@ -513,22 +542,83 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
 }
 
 // Stage move modal
+const LOSS_REASONS = [
+  "가격 경쟁력 부족",
+  "납기 조건 불일치",
+  "기술 스펙 미충족",
+  "경쟁사 선정",
+  "고객사 예산 삭감",
+  "프로젝트 취소",
+  "관계/신뢰도 부족",
+  "의사결정 지연 후 포기",
+  "기타",
+];
+
 function StageMoveModal({ opp, onSave, onClose }) {
-  const [newStage, setStage] = useState(opp.stage);
-  const [note, setNote]      = useState("");
-  const [prob, setProb]      = useState(STAGE_MAP[opp.stage]?.prob||opp.probability);
+  const [newStage,    setStage]   = useState(opp.stage);
+  const [note,        setNote]    = useState("");
+  const [prob,        setProb]    = useState(STAGE_MAP[opp.stage]?.prob||opp.probability);
+  const [lossReason,  setLR]      = useState("");
+  const [lossDetail,  setLD]      = useState("");
+  const [lessonLearned, setLL]    = useState("");
+  const isLoss = newStage === "손실";
+
   const handleStage = s => { setStage(s); setProb(STAGE_MAP[s]?.prob||0); };
+
+  const handleSave = () => {
+    const lossData = isLoss ? { lossReason, lossDetail, lessonLearned } : undefined;
+    onSave(newStage, prob, note, lossData);
+  };
+
   return <Modal title="영업 단계 변경" onClose={onClose}>
     <div style={{ marginBottom:20 }}>
       <SL>현재 단계</SL>
       <StagePill stage={opp.stage} size="md"/>
     </div>
     <Sel label="변경할 단계" value={newStage} onChange={handleStage} options={STAGES.map(s=>s.id)}/>
-    <Inp label="변경 확률 (%)" type="number" value={prob} onChange={v=>setProb(Number(v))}/>
-    <Inp label="단계 변경 사유 / 메모" value={note} onChange={setNote} multiline placeholder="단계 변경 이유, 이 시점의 상황을 기록하세요"/>
+
+    {!isLoss && <>
+      <Inp label="변경 확률 (%)" type="number" value={prob} onChange={v=>setProb(Number(v))}/>
+      <Inp label="단계 변경 사유 / 메모" value={note} onChange={setNote} multiline placeholder="단계 변경 이유, 이 시점의 상황을 기록하세요"/>
+    </>}
+
+    {/* 손실 전용 섹션 */}
+    {isLoss && (
+      <div style={{ background:C.redSoft, border:`1px solid ${C.red}30`, borderRadius:12, padding:"18px 20px", marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
+          <span style={{ fontSize:18 }}>📌</span>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:C.red }}>손실 처리</div>
+            <div style={{ fontSize:11, color:C.textMuted }}>손실 사유와 Lesson Learned를 기록해 다음 영업에 활용하세요</div>
+          </div>
+        </div>
+
+        {/* 손실 사유 선택 */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>손실 사유</label>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {LOSS_REASONS.map(r=>(
+              <button key={r} onClick={()=>setLR(r)} style={{
+                padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer",
+                border:`1.5px solid ${lossReason===r?C.red:C.border}`,
+                background:lossReason===r?`${C.red}18`:"transparent",
+                color:lossReason===r?C.red:C.textMuted, transition:"all .15s",
+              }}>{r}</button>
+            ))}
+          </div>
+        </div>
+
+        <Inp label="상세 사유" value={lossDetail} onChange={setLD} multiline minHeight={60} placeholder="경쟁사 선정이라면 어느 경쟁사에게 졌는지, 가격 문제라면 얼마나 차이났는지 등 구체적으로 기록하세요"/>
+        <Inp label="Lesson Learned" value={lessonLearned} onChange={setLL} multiline minHeight={80} placeholder="다음에는 어떻게 달리 접근할 것인지, 이 딜에서 배운 점을 기록하세요"/>
+        <Inp label="단계 변경 메모 (선택)" value={note} onChange={setNote} placeholder="추가 메모"/>
+      </div>
+    )}
+
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn variant={newStage==="수주확정"?"success":newStage==="손실"?"danger":"primary"} onClick={()=>onSave(newStage, prob, note)}>단계 변경</Btn>
+      <Btn variant={newStage==="수주확정"?"success":isLoss?"danger":"primary"} onClick={handleSave}>
+        {isLoss ? "📌 손실 처리" : "단계 변경"}
+      </Btn>
     </div>
   </Modal>;
 }
@@ -614,7 +704,7 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
   };
 
   const inputStyle = {
-    background:C.surface, border:`1.5px solid ${C.accent}`, borderRadius:6,
+    background:C.inputBg, border:`1.5px solid ${C.accent}`, borderRadius:6,
     padding:"4px 8px", color:C.text, fontSize:14, fontWeight:700,
     outline:"none", width:"100%", fontFamily:"inherit", boxSizing:"border-box",
   };
@@ -755,6 +845,63 @@ function StrategyEditor({ value, stageColor, tips, onSave, onCancel }) {
   );
 }
 
+// ── Lesson Learned 인라인 편집 ────────────────────────────────────────────────
+function LossLessonEditor({ opp, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal]         = useState(opp.lessonLearned||"");
+
+  const save = () => {
+    onUpdate({ lessonLearned: val });
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ background:C.surface, borderRadius:10, padding:"14px 16px", border:`1px solid ${C.border}` }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:editing?10:opp.lessonLearned?8:0 }}>
+        <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>
+          💡 Lesson Learned
+        </div>
+        {!editing && (
+          <button onClick={()=>{ setVal(opp.lessonLearned||""); setEditing(true); }}
+            style={{ fontSize:11, color:C.accent, background:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            {opp.lessonLearned ? "수정" : "+ 작성"}
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div>
+          <textarea
+            value={val}
+            onChange={e=>setVal(e.target.value)}
+            autoFocus
+            placeholder={`이 딜에서 배운 점을 기록하세요.\n\n예:\n• 초기 기술미팅에서 더 구체적인 스펙 확인이 필요했음\n• 경쟁사 A의 가격이 15% 낮았음 → 원가 구조 재검토 필요\n• 의사결정권자를 더 일찍 파악했어야 함`}
+            style={{
+              width:"100%", minHeight:120, background:C.inputBg,
+              border:`1.5px solid ${C.accent}`, borderRadius:8,
+              padding:"12px 14px", color:C.text, fontSize:13,
+              lineHeight:1.8, outline:"none", resize:"vertical",
+              fontFamily:"inherit", boxSizing:"border-box",
+            }}
+          />
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
+            <Btn variant="ghost" size="sm" onClick={()=>setEditing(false)}>취소</Btn>
+            <Btn size="sm" onClick={save}>저장</Btn>
+          </div>
+        </div>
+      ) : opp.lessonLearned ? (
+        <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+          {opp.lessonLearned}
+        </div>
+      ) : (
+        <div style={{ fontSize:12, color:C.textDim, fontStyle:"italic" }}>
+          아직 작성된 내용이 없습니다
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Opportunity Detail Page ───────────────────────────────────────────────────
 function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, onArchive, isAdmin, onDelete, onNavigateToClient }) {
   const [subTab, setSubTab]   = useState("overview");
@@ -791,33 +938,32 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   };
 
   // 항상 최신 state의 stageHistory를 사용
-  const handleStageMove = (newStage, prob, note) => {
+  const handleStageMove = (newStage, prob, note, lossData) => {
     const entry = { id:uid(), stage:newStage, date:today(), note, by:opp.owner };
     onUpdate(prev => prev.map(o => {
       if (o.id !== opp.id) return o;
-      return { ...o, stage:newStage, probability:prob, stageHistory:[...(o.stageHistory||[]), entry] };
+      const updated = { ...o, stage:newStage, probability:prob, stageHistory:[...(o.stageHistory||[]), entry] };
+      // 손실 처리 시 lossData 저장
+      if (newStage === "손실" && lossData) {
+        updated.lossReason    = lossData.lossReason;
+        updated.lossDetail    = lossData.lossDetail;
+        updated.lessonLearned = lossData.lessonLearned;
+        updated.lostAt        = today();
+      }
+      return updated;
     }));
 
     // 고객사등록 유형 딜의 단계 변경 시 AVL 자동 업데이트
     if (opp.oppType==="고객사등록" && opp.accountId) {
       if (newStage==="수주확정") {
-        // 수주확정 → AVL 등록완료 + 완료일 기록
         sbUpsert("clients_db", String(opp.accountId), {
-          avlStatus:    "등록완료",
-          avlUpdatedAt:  today(),
-          avlCompletedAt: today(),
-          avlOppId:      opp.id,
-          avlOppName:    opp.name,
+          avlStatus:"등록완료", avlUpdatedAt:today(),
+          avlCompletedAt:today(), avlOppId:opp.id, avlOppName:opp.name,
         });
       } else if (newStage==="견적검토/협상" || newStage==="재견적") {
-        // 협상 단계 진입 → 심사중으로 변경
-        sbUpsert("clients_db", String(opp.accountId), {
-          avlStatus:    "심사중",
-          avlUpdatedAt:  today(),
-        });
+        sbUpsert("clients_db", String(opp.accountId), { avlStatus:"심사중", avlUpdatedAt:today() });
       }
     }
-
     setSM(false);
   };
 
@@ -865,7 +1011,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
                   if(e.key==="Escape"){ setTitleVal(opp.name); setEditingTitle(false); }
                 }}
                 autoFocus
-                style={{ fontSize:20, fontWeight:900, color:C.text, background:C.surface, border:`1.5px solid ${C.accent}`, borderRadius:8, padding:"6px 12px", outline:"none", fontFamily:"inherit", width:420, letterSpacing:"-.02em" }}
+                style={{ fontSize:20, fontWeight:900, color:C.text, background:C.inputBg, border:`1.5px solid ${C.accent}`, borderRadius:8, padding:"6px 12px", outline:"none", fontFamily:"inherit", width:420, letterSpacing:"-.02em" }}
               />
               <button onClick={()=>{ update({name:titleVal}); setEditingTitle(false); }} style={{ padding:"6px 14px", background:C.accent, color:"#fff", border:"none", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer" }}>저장</button>
               <button onClick={()=>{ setTitleVal(opp.name); setEditingTitle(false); }} style={{ padding:"6px 12px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:7, fontSize:12, cursor:"pointer" }}>취소</button>
@@ -945,11 +1091,42 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
     {/* ── 개요 ── */}
     {subTab==="overview"&&<div>
+      {/* 손실 딜 전용 배너 */}
+      {opp.stage==="손실" && (
+        <div style={{ background:C.redSoft, border:`1px solid ${C.red}30`, borderRadius:14, padding:"20px 24px", marginBottom:20 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+            <span style={{ fontSize:20 }}>📌</span>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:C.red }}>손실 처리된 딜</div>
+              <div style={{ fontSize:11, color:C.textMuted }}>손실일: {opp.lostAt||"—"}</div>
+            </div>
+          </div>
+
+          {/* 손실 사유 */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+            <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>손실 사유</div>
+              {opp.lossReason ? (
+                <span style={{ fontSize:13, fontWeight:700, color:C.red }}>{opp.lossReason}</span>
+              ) : (
+                <span style={{ fontSize:12, color:C.textDim }}>미입력</span>
+              )}
+            </div>
+            <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>상세 사유</div>
+              <div style={{ fontSize:12, color:opp.lossDetail?C.text:C.textDim, lineHeight:1.6 }}>{opp.lossDetail||"미입력"}</div>
+            </div>
+          </div>
+
+          {/* Lesson Learned */}
+          <LossLessonEditor opp={opp} onUpdate={update}/>
+        </div>
+      )}
       {editing?<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <div style={{ marginBottom:16 }}>
             <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>사업부</label>
-            <select value={editForm.businessUnit} onChange={e=>setEF(p=>({...p,businessUnit:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+            <select value={editForm.businessUnit} onChange={e=>setEF(p=>({...p,businessUnit:e.target.value}))} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
               {BUSINESS_UNITS.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}
             </select>
           </div>
@@ -1349,7 +1526,7 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                       <span style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"60%" }}>{acc.name}</span>
                       <span style={{ fontSize:12, fontWeight:800, color:stage.color, flexShrink:0 }}>{fmt(o.value)}</span>
                     </div>
-                    {bu && <div style={{ marginTop:4 }}><span style={{ fontSize:9, background:`${bu.color}15`, color:bu.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span></div>}
+                    {bu && <div style={{ marginTop:4 }}><span style={{ fontSize:9, background:`${buColor(bu.color)}15`, color:buColor(bu.color), padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span></div>}
                   </div>;
                 }
 
@@ -1361,7 +1538,7 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                   {/* Badges */}
                   <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
                     <span style={{ fontSize:10, color:C.textMuted }}>{acc.name}</span>
-                    {bu && <span style={{ fontSize:10, background:`${bu.color}15`, color:bu.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span>}
+                    {bu && <span style={{ fontSize:10, background:`${buColor(bu.color)}15`, color:buColor(bu.color), padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span>}
                     {tc && <span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{tc.icon}</span>}
                   </div>
                   {/* Value + prob bar */}
@@ -1398,9 +1575,14 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         {lostOpps.map(o=>{
           const acc=clients.find(c=>c.id===o.accountId)||{};
-          return <div key={o.id} onClick={()=>onSelect(o)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", cursor:"pointer", opacity:.7 }}>
+          return <div key={o.id} onClick={()=>onSelect(o)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", cursor:"pointer", opacity:.75 }}>
             <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{o.name}</div>
-            <div style={{ fontSize:11, color:C.textMuted }}>{acc.name} · {fmt(o.value)}</div>
+            <div style={{ fontSize:11, color:C.textMuted, marginBottom:o.lossReason?4:0 }}>{acc.name} · {fmt(o.value)}</div>
+            {o.lossReason && (
+              <span style={{ fontSize:10, background:`${C.red}15`, color:C.red, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>
+                {o.lossReason}
+              </span>
+            )}
           </div>;
         })}
       </div>
@@ -1535,8 +1717,8 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
           return (
             <div key={bu.id} onClick={()=>setBU(isSelected?"전체":bu.id)}
               style={{
-                background:isSelected?`${bu.color}10`:C.surfaceUp,
-                border:`1.5px solid ${isSelected?bu.color:C.border}`,
+                background:isSelected?`${buColor(bu.color)}10`:C.surfaceUp,
+                border:`1.5px solid ${isSelected?buColor(bu.color):C.border}`,
                 borderRadius:10, padding:"12px 14px", cursor:"pointer", transition:"all .15s",
               }}>
               <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
@@ -1546,7 +1728,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                 <div>
                   <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
-                  <div style={{ fontSize:12, fontWeight:700, color:bu.color }}>{fmt(buPipe)}</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:buColor(bu.color) }}>{fmt(buPipe)}</div>
                   <div style={{ fontSize:10, color:C.textDim }}>{buActive.length}건</div>
                 </div>
                 <div>
@@ -1746,7 +1928,7 @@ function ContactModal({ contact, contacts, onSave, onClose }) {
       </div>
       {others.length > 0 && <div style={{ marginBottom:16 }}>
         <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>상위 보고 대상 (Reports To)</label>
-        <select value={f.reportsTo} onChange={e=>s("reportsTo")(e.target.value)} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+        <select value={f.reportsTo} onChange={e=>s("reportsTo")(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
           <option value="">— 없음 (최상위) —</option>
           {others.map(c => <option key={c.id} value={c.id}>{c.name} ({c.title})</option>)}
         </select>
@@ -2277,13 +2459,13 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
         });
 
         const TYPE_CFG = {
-          "방문미팅": { icon:"🤝", color:"#2563EB" },
-          "전화통화": { icon:"📞", color:"#16A34A" },
-          "화상회의": { icon:"💻", color:"#7C3AED" },
-          "이메일":   { icon:"✉️",  color:"#D97706" },
-          "식사미팅": { icon:"🍽",  color:"#DB2777" },
-          "계약체결": { icon:"📝", color:"#16A34A" },
-          "기타":     { icon:"📌", color:"#6B7280" },
+          "방문미팅": { icon:"🤝", color:C.accent },
+          "전화통화": { icon:"📞", color:C.green },
+          "화상회의": { icon:"💻", color:"#A78BFA" },
+          "이메일":   { icon:"✉️",  color:C.yellow },
+          "식사미팅": { icon:"🍽",  color:"#F472B6" },
+          "계약체결": { icon:"📝", color:C.green },
+          "기타":     { icon:"📌", color:C.textMuted },
         };
 
         return Object.entries(groups).map(([month, items]) => {
@@ -2828,7 +3010,7 @@ const ACTION_TEMPLATES = [
     ]
   },
   {
-    id:"t2", name:"제안 준비", stage:"니즈파악", color:"#3B6FE8",
+    id:"t2", name:"제안 준비", stage:"니즈파악", color:C.accent,
     actions:[
       { title:"고객 니즈 맞춤형 제안서 작성",              priority:"높음", dayOffset:3 },
       { title:"ROI 및 비즈니스 임팩트 수치화",             priority:"높음", dayOffset:4 },
@@ -2837,7 +3019,7 @@ const ACTION_TEMPLATES = [
     ]
   },
   {
-    id:"t3", name:"협상 클로징", stage:"협상", color:"#8B5CF6",
+    id:"t3", name:"협상 클로징", stage:"협상", color:"#A78BFA",
     actions:[
       { title:"최종 계약 조건 정리 및 내부 승인 요청",     priority:"높음", dayOffset:2 },
       { title:"계약서 초안 검토 및 수정 사항 반영",        priority:"높음", dayOffset:3 },
@@ -2846,7 +3028,7 @@ const ACTION_TEMPLATES = [
     ]
   },
   {
-    id:"t4", name:"계약 후 온보딩", stage:"수주확정", color:"#10B981",
+    id:"t4", name:"계약 후 온보딩", stage:"수주확정", color:C.green,
     actions:[
       { title:"킥오프 미팅 일정 수립 및 아젠다 준비",      priority:"높음", dayOffset:3 },
       { title:"온보딩 담당자 배정 및 인수인계",            priority:"높음", dayOffset:5 },
@@ -2855,7 +3037,7 @@ const ACTION_TEMPLATES = [
     ]
   },
   {
-    id:"t5", name:"주간 follow-up", stage:"전체", color:"#F59E0B",
+    id:"t5", name:"주간 follow-up", stage:"전체", color:C.yellow,
     actions:[
       { title:"고객사 최근 동향 체크 및 뉴스 모니터링",    priority:"낮음", dayOffset:1 },
       { title:"담당자 안부 연락 (전화/이메일)",            priority:"중간", dayOffset:2 },
@@ -2924,7 +3106,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
         <div style={{ marginBottom:16 }}>
           <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회</label>
-          <select value={selOpp} onChange={e=>setSelOpp(e.target.value)} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+          <select value={selOpp} onChange={e=>setSelOpp(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
             {opps.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </div>
@@ -3571,10 +3753,10 @@ ${snap.lastMeetingFocus}
                 <div style={{ display:"grid", gap:10 }}>
                   {weekClientHistory.map(({ client, weekHist }) => {
                     const TYPE_CFG = {
-                      "방문미팅": { icon:"🤝", color:"#2563EB" }, "전화통화": { icon:"📞", color:"#16A34A" },
-                      "화상회의": { icon:"💻", color:"#7C3AED" }, "이메일":   { icon:"✉️",  color:"#D97706" },
-                      "식사미팅": { icon:"🍽",  color:"#DB2777" }, "계약체결": { icon:"📝", color:"#16A34A" },
-                      "기타":     { icon:"📌", color:"#6B7280" },
+                      "방문미팅": { icon:"🤝", color:C.accent }, "전화통화": { icon:"📞", color:C.green },
+                      "화상회의": { icon:"💻", color:"#A78BFA" }, "이메일":   { icon:"✉️",  color:C.yellow },
+                      "식사미팅": { icon:"🍽",  color:"#F472B6" }, "계약체결": { icon:"📝", color:C.green },
+                      "기타":     { icon:"📌", color:C.textMuted },
                     };
                     return (
                       <div key={client.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px 18px" }}>
@@ -3675,10 +3857,10 @@ ${snap.lastMeetingFocus}
 
 // ─── QUARTERLY TRACKER ────────────────────────────────────────────────────────
 const QTR_RANGES = {
-  Q1:{ months:[1,2,3],  label:"Q1 (1~3월)",  color:"#3B6FE8" },
-  Q2:{ months:[4,5,6],  label:"Q2 (4~6월)",  color:"#8B5CF6" },
-  Q3:{ months:[7,8,9],  label:"Q3 (7~9월)",  color:"#F59E0B" },
-  Q4:{ months:[10,11,12],label:"Q4 (10~12월)",color:"#10B981" },
+  Q1:{ months:[1,2,3],  label:"Q1 (1~3월)",  color:C.accent },
+  Q2:{ months:[4,5,6],  label:"Q2 (4~6월)",  color:"#A78BFA" },
+  Q3:{ months:[7,8,9],  label:"Q3 (7~9월)",  color:C.yellow },
+  Q4:{ months:[10,11,12],label:"Q4 (10~12월)",color:C.green },
 };
 
 function getQtr(dateStr) {
@@ -4168,7 +4350,7 @@ function MobileLogModal({ opps, onSave, onClose }) {
   };
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:900, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
+    <div style={{ position:"fixed", inset:0, background:C.modalOverlay, zIndex:900, display:"flex", flexDirection:"column", justifyContent:"flex-end" }} onClick={onClose}>
       <div style={{ background:MC.surface, borderRadius:"20px 20px 0 0", padding:"24px 20px 36px", boxShadow:"0 -8px 32px rgba(0,0,0,.12)" }} onClick={e=>e.stopPropagation()}>
         {/* Handle bar */}
         <div style={{ width:40, height:4, background:MC.border, borderRadius:2, margin:"0 auto 20px" }}/>
@@ -4501,7 +4683,7 @@ function LoginPage() {
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
-      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:400, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:400, boxShadow:C.shadow, textAlign:"center" }}>
         {/* Logo */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:32 }}>
           <div style={{ width:44, height:44, borderRadius:12, background:"#3B6FE8", display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -4530,7 +4712,7 @@ function LoginPage() {
           {loading ? "로그인 중..." : "Microsoft 365로 로그인"}
         </button>
 
-        {error && <div style={{ marginTop:16, padding:"10px 14px", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, fontSize:13, color:"#DC2626" }}>{error}</div>}
+        {error && <div style={{ marginTop:16, padding:"10px 14px", background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, fontSize:13, color:C.red }}>{error}</div>}
 
         <div style={{ marginTop:28, fontSize:12, color:C.textDim, lineHeight:1.6 }}>
           강원에너지 임직원만 접근 가능합니다.<br/>
@@ -4605,7 +4787,7 @@ function AccessPendingPage({ email, name }) {
   const { instance } = useMsal();
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Pretendard',sans-serif" }}>
-      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:"0 8px 40px rgba(0,0,0,.08)", textAlign:"center" }}>
+      <div style={{ background:C.surface, border:"1px solid #E2E8F0", borderRadius:20, padding:"48px 44px", width:"100%", maxWidth:420, boxShadow:C.shadow, textAlign:"center" }}>
         <div style={{ width:64, height:64, borderRadius:"50%", background:"#FEF9C3", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, margin:"0 auto 20px" }}>⏳</div>
         <div style={{ fontSize:22, fontWeight:800, color:C.text, marginBottom:8 }}>승인 대기 중</div>
         <div style={{ fontSize:14, color:C.textMuted, marginBottom:24, lineHeight:1.7 }}>
@@ -4723,8 +4905,8 @@ function AdminPanel({ onClose }) {
   );
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:600, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={onClose}>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:640, maxHeight:"80vh", overflow:"auto", padding:"28px 32px", boxShadow:"0 24px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+    <div style={{ position:"fixed", inset:0, background:C.modalOverlay, zIndex:600, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={onClose}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:640, maxHeight:"80vh", overflow:"auto", padding:"28px 32px", boxShadow:C.shadowModal }} onClick={e=>e.stopPropagation()}>
 
         {/* Header */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
@@ -4945,7 +5127,7 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
       {/* 알림 패널 */}
       {open && <>
         <div onClick={()=>setOpen(false)} style={{ position:"fixed", inset:0, zIndex:199 }}/>
-        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, width:390, maxHeight:"70vh", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:"0 12px 40px rgba(0,0,0,.18)", zIndex:200, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, width:390, maxHeight:"70vh", background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:C.shadowModal, zIndex:200, display:"flex", flexDirection:"column", overflow:"hidden" }}>
 
           {/* 패널 헤더 */}
           <div style={{ padding:"16px 18px 12px", borderBottom:`1px solid ${C.border}` }}>
@@ -5139,8 +5321,8 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
     </button>
 
     {/* 모달 */}
-    {open && <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.4)", zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center", padding:"0 0 80px" }} onClick={reset}>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"24px 28px", width:"100%", maxWidth:520, boxShadow:"0 24px 60px rgba(0,0,0,.2)" }} onClick={e=>e.stopPropagation()}>
+    {open && <div style={{ position:"fixed", inset:0, background:C.modalOverlay, zIndex:500, display:"flex", alignItems:"flex-end", justifyContent:"center", padding:"0 0 80px" }} onClick={reset}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:20, padding:"24px 28px", width:"100%", maxWidth:520, boxShadow:C.shadowModal }} onClick={e=>e.stopPropagation()}>
 
         {saved ? (
           <div style={{ textAlign:"center", padding:"20px 0" }}>
