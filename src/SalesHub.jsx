@@ -71,14 +71,14 @@ const THEMES = {
     purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
     cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
     // 텍스트
-    text:"#1A202C", textMuted:C.textMuted, textDim:"#9CA3AF",
+    text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
     // 컴포넌트
     navBg:"#FFFFFF", navBorder:"#E4E6EA",
     inputBg:"#F8F9FB",
     modalOverlay:"rgba(15,23,42,0.5)",
     shadow:"0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)",
     shadowHover:"0 0 0 2px rgba(37,99,235,0.18), 0 8px 24px rgba(0,0,0,.10)",
-    shadowModal:C.shadowModal,
+    shadowModal:"0 24px 60px rgba(0,0,0,.18)",
     // 버튼 텍스트
     btnText:"#FFFFFF",
   },
@@ -150,14 +150,14 @@ function ThemeToggle() {
 
 // ─── Pipeline Stages ────────────────────────────────────────────────────────
 const STAGES = [
-  { id:"리드",         label:"리드",         prob:5,   color:C.textDim },
-  { id:"초기접촉",     label:"초기접촉",     prob:15,  color:C.textMuted },
-  { id:"기술협의",     label:"기술협의",     prob:30,  color:C.accent },
-  { id:"초도견적",     label:"초도견적",     prob:45,  color:C.accent },
-  { id:"재견적",       label:"재견적",       prob:60,  color:C.accent },
-  { id:"견적검토/협상",label:"견적검토/협상",prob:80,  color:C.accent },
-  { id:"수주확정",     label:"수주확정",     prob:100, color:C.green },
-  { id:"손실",         label:"손실",         prob:0,   color:C.red },
+  { id:"리드",          label:"리드",          prob:5,   color:"#9CA3AF" },
+  { id:"초기접촉",      label:"초기접촉",      prob:15,  color:"#6B7280" },
+  { id:"기술협의",      label:"기술협의",      prob:30,  color:"#3B82F6" },
+  { id:"초도견적",      label:"초도견적",      prob:45,  color:"#2563EB" },
+  { id:"재견적",        label:"재견적",        prob:60,  color:"#1E40AF" },
+  { id:"견적검토/협상", label:"견적검토/협상", prob:80,  color:"#1D4ED8" },
+  { id:"수주확정",      label:"수주확정",      prob:100, color:"#16A34A" },
+  { id:"손실",          label:"손실",          prob:0,   color:"#DC2626" },
 ];
 // ─── Business Units ──────────────────────────────────────────────────────────
 const BUSINESS_UNITS = [
@@ -191,16 +191,16 @@ const buColor = (color) => {
 
 // ─── 영업기회 유형 ────────────────────────────────────────────────────────────
 const OPP_TYPES = [
-  { id:"일반수주",    label:"일반수주",    color:C.accent, icon:"📦" },
-  { id:"고객사등록",  label:"고객사등록",  color:"#34D399", icon:"🏭" },
-  { id:"초도품납품",  label:"초도품납품",  color:"#FBBF24", icon:"🔬" },
+  { id:"일반수주",    label:"일반수주",    color:"#2563EB", icon:"📦" },
+  { id:"고객사등록",  label:"고객사등록",  color:"#059669", icon:"🏭" },
+  { id:"초도품납품",  label:"초도품납품",  color:"#D97706", icon:"🔬" },
 ];
 
 // ─── AVL 등록 상태 ────────────────────────────────────────────────────────────
 const AVL_STATUS = [
-  { id:"미등록",  label:"미등록",  color:C.textMuted, bg:"rgba(107,114,128,0.08)" },
-  { id:"심사중",  label:"심사중",  color:C.yellow, bg:"rgba(217,119,6,0.10)"   },
-  { id:"등록완료",label:"등록완료",color:C.green, bg:"rgba(22,163,74,0.10)"   },
+  { id:"미등록",  label:"미등록",  color:"#6B7280", bg:"rgba(107,114,128,0.08)" },
+  { id:"심사중",  label:"심사중",  color:"#D97706", bg:"rgba(217,119,6,0.10)"   },
+  { id:"등록완료",label:"등록완료",color:"#16A34A", bg:"rgba(22,163,74,0.10)"   },
 ];
 const STAGE_MAP = Object.fromEntries(STAGES.map(s=>[s.id,s]));
 
