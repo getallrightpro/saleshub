@@ -161,10 +161,10 @@ const STAGES = [
 ];
 // ─── Business Units ──────────────────────────────────────────────────────────
 const BUSINESS_UNITS = [
-  { id:"산업용S/G",        color:C.accent }, // 딥 블루
-  { id:"2차전지/반도체EPC", color:C.textMuted }, // 차콜 그레이
-  { id:"리튬소재",          color:"#34D399" }, // 딥 그린
-  { id:"신사업",            color:"#FBBF24" }, // 딥 앰버
+  { id:"산업용S/G",        color:"#1D4ED8" },
+  { id:"2차전지/반도체EPC", color:"#374151" },
+  { id:"리튬소재",          color:"#065F46" },
+  { id:"신사업",            color:"#92400E" },
 ];
 const ACTIVE_STAGES = STAGES.filter(s=>s.id!=="손실");
 
