@@ -380,6 +380,32 @@ function SL({ children }) {
   return <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", marginBottom:12 }}>{children}</div>;
 }
 
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+function Tooltip({ text, children }) {
+  const [show, setShow] = useState(false);
+  const [pos,  setPos]  = useState({ top:0, left:0 });
+  const ref = useState(null);
+
+  return (
+    <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}
+      onMouseEnter={e=>{ setShow(true); const r=e.currentTarget.getBoundingClientRect(); setPos({top:r.bottom+6, left:r.left}); }}
+      onMouseLeave={()=>setShow(false)}>
+      {children}
+      {show && (
+        <div style={{
+          position:"fixed", top:pos.top, left:pos.left, zIndex:999,
+          background:C.surface, border:`1px solid ${C.border}`,
+          borderRadius:8, padding:"8px 12px", fontSize:12, color:C.textMuted,
+          maxWidth:240, lineHeight:1.6, boxShadow:C.shadowModal,
+          pointerEvents:"none", whiteSpace:"pre-wrap",
+        }}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
 function TabBar({ tabs, active, onChange }) {
   return <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${C.border}`, marginBottom:24 }}>
     {tabs.map(t=><button key={t.id} onClick={()=>onChange(t.id)} style={{ padding:"10px 18px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${active===t.id?C.accent:"transparent"}`, marginBottom:-1, color:active===t.id?C.accent:C.textMuted, fontWeight:active===t.id?700:500, fontSize:13, fontFamily:"inherit", whiteSpace:"nowrap" }}>
@@ -2866,11 +2892,11 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
 function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline, onNavigateToClient }) {
   const [dashTab, setDashTab] = useState("overview");
 
-  const activeOpps = opps.filter(o=>o.stage!=="손실"); // 손실만 제외 (수주확정 포함)
+  const activeOpps = opps.filter(o=>o.stage!=="손실"&&o.stage!=="수주확정"); // 진행 중 딜만
   const totalPipe  = activeOpps.reduce((s,o)=>s+o.value,0);
   const weighted   = activeOpps.reduce((s,o)=>s+Math.round(o.value*o.probability/100),0);
   const won        = opps.filter(o=>o.stage==="수주확정");
-  const inProgress = opps.filter(o=>o.stage!=="수주확정"&&o.stage!=="손실"); // 진행 중 딜
+  const inProgress = activeOpps; // alias
   const pending    = actions.filter(a=>!a.done);
   const late       = pending.filter(a=>isLate(a.dueDate));
 
@@ -2893,10 +2919,14 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
     {dashTab==="overview" && <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { label:"총 파이프라인",  val:fmt(totalPipe), sub:`${activeOpps.length}개 딜 (손실 제외)`, color:C.accent, icon:"◈" },
-          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                              color:C.purple, icon:"◉" },
-          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green, icon:"◎" },
-          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,             color:late.length?C.red:C.yellow, icon:"▦" },
+          { label:"활성 파이프라인", val:fmt(totalPipe), sub:`${activeOpps.length}개 진행 중 딜`, color:C.accent, icon:"◈",
+            tip:"손실·수주확정 제외, 현재 진행 중인 딜의 예상 수주 금액 합계입니다." },
+          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                           color:C.purple, icon:"◉",
+            tip:"각 딜의 금액 × 성공 확률을 합산한 현실적 기대 매출입니다." },
+          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green, icon:"◎",
+            tip:"수주확정 단계로 이동된 딜의 누적 금액입니다." },
+          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,          color:late.length?C.red:C.yellow, icon:"▦",
+            tip:`미완료 액션 ${pending.length}개 중 기한이 지난 액션이 ${late.length}개 있습니다.` },
         ].map(m=>(
           <div key={m.label} style={{
             background:C.surface, border:`1px solid ${C.border}`, borderRadius:12,
@@ -2904,7 +2934,14 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
             borderLeft:`3px solid ${m.color}`,
           }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-              <div style={{ fontSize:13, fontWeight:600, color:C.textMuted }}>{m.label}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:C.textMuted }}>{m.label}</div>
+                {m.tip && (
+                  <Tooltip text={m.tip}>
+                    <span style={{ width:15, height:15, borderRadius:"50%", background:C.surfaceUp, border:`1px solid ${C.border}`, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:C.textDim, cursor:"default" }}>?</span>
+                  </Tooltip>
+                )}
+              </div>
               <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
             </div>
             <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
