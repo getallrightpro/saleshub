@@ -652,7 +652,7 @@ function StageMoveModal({ opp, onSave, onClose }) {
 // Activity Modal
 // ─── Teams / Graph API 파일 업로드 ──────────────────────────────────────────
 const TEAMS_TEAM_ID      = "eff66e69-78ea-4bf1-a479-42e1cccad3ed";
-const TEAMS_CHANNEL_ID   = "19:r1-oLWpDxH2lBQWP7HVzF5xM2V2okh-6qCXoqKCVG5U1@thread.tacv2";
+const TEAMS_CHANNEL_ID   = "19:080dcefdb0104d86bb0d9dcfa295375a@thread.tacv2";
 const TEAMS_TEAM_NAME    = "[강원에너지]영업본부";
 const TEAMS_CHANNEL_NAME = "영업및외부활동보고서";
 
@@ -690,33 +690,50 @@ const uploadToTeams = async (file, date) => {
   const teamId    = TEAMS_TEAM_ID;
   const channelId = TEAMS_CHANNEL_ID;
 
-  // 1. 채널 파일 폴더 가져오기
-  console.log("[Teams] 채널 파일 폴더 조회 중...");
-  const filesFolder = await graphGet(token, `/teams/${teamId}/channels/${channelId}/filesFolder`);
-  console.log("[Teams] filesFolder name:", filesFolder.name, "id:", filesFolder.id);
+  // 1. 채널 전용 filesFolder 가져오기
+  // /teams/{teamId}/channels/{channelId}/filesFolder 는
+  // 해당 채널의 SharePoint 문서 폴더를 반환
+  console.log("[Teams] 채널 파일 폴더 조회...");
+  const filesFolder = await graphGet(token,
+    `/teams/${teamId}/channels/${channelId}/filesFolder`
+  );
+  console.log("[Teams] 채널 폴더:", filesFolder.name, "| id:", filesFolder.id, "| path:", filesFolder.parentReference?.path);
+
+  // driveId: 채널이 속한 SharePoint 드라이브
   const driveId    = filesFolder.parentReference?.driveId;
-  const rootItemId = filesFolder.id;
-  console.log("[Teams] driveId:", driveId, "rootItemId:", rootItemId);
+  const rootItemId = filesFolder.id; // 채널 폴더 루트
+
+  if (!driveId) throw new Error("driveId를 가져올 수 없습니다. Graph API 권한을 확인하세요.");
 
   // 2. 연도/월 폴더 자동 생성
   const d     = new Date(date || today());
   const year  = String(d.getFullYear());
   const month = String(d.getMonth()+1).padStart(2,"0") + "월";
-  console.log("[Teams] 폴더 경로:", filesFolder.name, ">", year, ">", month);
+  console.log("[Teams] 저장 경로:", filesFolder.name, ">", year, ">", month);
 
   const ensureFolder = async (parentId, folderName) => {
-    console.log(`[Teams] 폴더 확인 중: "${folderName}"`);
+    console.log(`[Teams] 폴더 확인: "${folderName}"`);
     try {
-      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children`);
-      const existing = children.value?.find(i => i.name === folderName && i.folder);
-      if (existing) { console.log(`[Teams] 폴더 존재: "${folderName}" (${existing.id})`); return existing.id; }
-    } catch(e) { console.warn("[Teams] 폴더 조회 실패:", e.message); }
+      const children = await graphGet(token,
+        `/drives/${driveId}/items/${parentId}/children`
+      );
+      const existing = (children.value||[]).find(i => i.name === folderName && i.folder);
+      if (existing) {
+        console.log(`[Teams] 폴더 있음: "${folderName}" (${existing.id})`);
+        return existing.id;
+      }
+    } catch(e) {
+      console.warn("[Teams] 폴더 목록 조회 실패:", e.message);
+    }
+    // 없으면 생성
     console.log(`[Teams] 폴더 생성: "${folderName}"`);
-    const created = await graphPost(token, `/drives/${driveId}/items/${parentId}/children`, {
-      name: folderName,
-      folder: {},
-      "@microsoft.graph.conflictBehavior": "rename",
-    });
+    const created = await graphPost(token,
+      `/drives/${driveId}/items/${parentId}/children`, {
+        name: folderName,
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "rename",
+      }
+    );
     console.log(`[Teams] 폴더 생성 완료: "${folderName}" (${created.id})`);
     return created.id;
   };
@@ -725,11 +742,15 @@ const uploadToTeams = async (file, date) => {
   const monthFolderId = await ensureFolder(yearFolderId, month);
 
   // 3. 파일 업로드
-  console.log("[Teams] 파일 업로드 시작:", file.name);
+  console.log("[Teams] 파일 업로드:", file.name, `(${file.size} bytes)`);
   const arrayBuffer = await file.arrayBuffer();
-  const uploadRes = await fetch(
+  const uploadRes   = await fetch(
     `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${monthFolderId}:/${encodeURIComponent(file.name)}:/content`,
-    { method:"PUT", headers:{ Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" }, body: arrayBuffer }
+    {
+      method:  "PUT",
+      headers: { Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" },
+      body:    arrayBuffer,
+    }
   );
   if (!uploadRes.ok) {
     const errText = await uploadRes.text();
@@ -737,18 +758,17 @@ const uploadToTeams = async (file, date) => {
     throw new Error(`파일 업로드 실패 (${uploadRes.status}): ${errText}`);
   }
   const uploaded = await uploadRes.json();
-  console.log("[Teams] 업로드 성공:", uploaded.webUrl);
-  console.log("[Teams] 저장 경로:", uploaded.parentReference?.path);
+  console.log("[Teams] 업로드 완료:", uploaded.webUrl);
+  console.log("[Teams] 실제 저장 경로:", uploaded.parentReference?.path);
 
-  // 저장 경로를 사람이 읽기 쉽게 표시
-  const uploadPath = `${TEAMS_TEAM_NAME} › ${TEAMS_CHANNEL_NAME} › ${year} › ${month}`;
+  const uploadPath = `${TEAMS_CHANNEL_NAME} › ${year} › ${month}`;
 
   return {
     name:       uploaded.name,
     url:        uploaded.webUrl,
     size:       uploaded.size,
     uploadedAt: today(),
-    uploadPath, // 어디에 저장됐는지 표시
+    uploadPath,
   };
 };
 
