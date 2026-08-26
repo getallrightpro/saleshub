@@ -752,60 +752,6 @@ const uploadToTeams = async (file, date) => {
   };
 };
 
-  // 3. 연도/월 폴더 자동 생성
-  const d     = new Date(date || today());
-  const year  = String(d.getFullYear());
-  const month = String(d.getMonth()+1).padStart(2,"0") + "월";
-  console.log("[Teams] 폴더 경로:", year, ">", month);
-
-  const ensureFolder = async (parentId, folderName) => {
-    console.log(`[Teams] 폴더 확인 중: "${folderName}" (parentId: ${parentId})`);
-    try {
-      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children?$filter=name eq '${encodeURIComponent(folderName)}'`);
-      const existing = children.value?.find(i => i.name === folderName && i.folder);
-      if (existing) { console.log(`[Teams] 폴더 존재: "${folderName}" (${existing.id})`); return existing.id; }
-    } catch(e) { console.warn("[Teams] 폴더 조회 실패, 새로 생성:", e.message); }
-    console.log(`[Teams] 폴더 생성: "${folderName}"`);
-    const created = await graphPost(token, `/drives/${driveId}/items/${parentId}/children`, {
-      name: folderName,
-      folder: {},
-      "@microsoft.graph.conflictBehavior": "rename",
-    });
-    console.log(`[Teams] 폴더 생성 완료: "${folderName}" (${created.id})`);
-    return created.id;
-  };
-
-  const yearFolderId  = await ensureFolder(rootItemId, year);
-  const monthFolderId = await ensureFolder(yearFolderId, month);
-  console.log("[Teams] 최종 업로드 폴더 ID:", monthFolderId);
-
-  // 4. 파일 업로드
-  console.log("[Teams] 파일 업로드 시작:", file.name, file.size, "bytes");
-  const arrayBuffer = await file.arrayBuffer();
-  const uploadUrl   = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${monthFolderId}:/${encodeURIComponent(file.name)}:/content`;
-  console.log("[Teams] 업로드 URL:", uploadUrl);
-  const uploadRes = await fetch(uploadUrl, {
-    method:"PUT",
-    headers:{ Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" },
-    body: arrayBuffer,
-  });
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    console.error("[Teams] 업로드 실패:", uploadRes.status, errText);
-    throw new Error(`파일 업로드 실패 (${uploadRes.status}): ${errText}`);
-  }
-  const uploaded = await uploadRes.json();
-  console.log("[Teams] 업로드 성공:", uploaded.webUrl);
-
-  return {
-    name:       uploaded.name,
-    url:        uploaded.webUrl,
-    teamsUrl:   uploaded.webUrl,
-    size:       uploaded.size,
-    uploadedAt: today(),
-  };
-};
-
 // ─── Activity Modal (Teams 업로드 포함) ──────────────────────────────────────
 function ActivityModal({ act, onSave, onClose }) {
   const [f,         sF]       = useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
