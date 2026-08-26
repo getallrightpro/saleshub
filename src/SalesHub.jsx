@@ -650,9 +650,132 @@ function StageMoveModal({ opp, onSave, onClose }) {
 }
 
 // Activity Modal
+// ─── Teams / Graph API 파일 업로드 ──────────────────────────────────────────
+const TEAMS_TEAM_NAME    = "[강원에너지]영업본부";
+const TEAMS_CHANNEL_NAME = "영업및외부활동보고서";
+
+const getGraphToken = async () => {
+  const account = msalInstance.getAllAccounts()[0];
+  if (!account) throw new Error("로그인 계정 없음");
+  const res = await msalInstance.acquireTokenSilent({
+    scopes:  ["Files.ReadWrite.All", "Sites.ReadWrite.All"],
+    account,
+  });
+  return res.accessToken;
+};
+
+const graphGet = async (token, path) => {
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    headers: { Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+  });
+  if (!res.ok) throw new Error(`Graph GET ${path} failed: ${res.status}`);
+  return res.json();
+};
+
+const graphPost = async (token, path, body) => {
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method:"POST",
+    headers:{ Authorization:`Bearer ${token}`, "Content-Type":"application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Graph POST ${path} failed: ${res.status}`);
+  return res.json();
+};
+
+// 연도/월 폴더 없으면 자동 생성 후 파일 업로드
+const uploadToTeams = async (file, date) => {
+  const token = await getGraphToken();
+
+  // 1. 팀 찾기
+  const teams = await graphGet(token, "/me/joinedTeams");
+  const team  = teams.value.find(t => t.displayName === TEAMS_TEAM_NAME);
+  if (!team) throw new Error(`"${TEAMS_TEAM_NAME}" 팀을 찾을 수 없습니다`);
+
+  // 2. 채널 찾기
+  const channels = await graphGet(token, `/teams/${team.id}/channels`);
+  const channel  = channels.value.find(c => c.displayName === TEAMS_CHANNEL_NAME);
+  if (!channel) throw new Error(`"${TEAMS_CHANNEL_NAME}" 채널을 찾을 수 없습니다`);
+
+  // 3. 채널 파일 폴더(드라이브) 가져오기
+  const filesFolder = await graphGet(token, `/teams/${team.id}/channels/${channel.id}/filesFolder`);
+  const driveId     = filesFolder.parentReference?.driveId;
+  const rootItemId  = filesFolder.id;
+
+  // 4. 연도/월 폴더 자동 생성
+  const d     = new Date(date || today());
+  const year  = String(d.getFullYear());
+  const month = String(d.getMonth()+1).padStart(2,"0") + "월";
+
+  const ensureFolder = async (parentId, folderName) => {
+    // 폴더 목록 조회
+    try {
+      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children?$filter=name eq '${folderName}'`);
+      const existing  = children.value.find(i => i.name === folderName && i.folder);
+      if (existing) return existing.id;
+    } catch(e) {}
+    // 없으면 생성
+    const created = await graphPost(token, `/drives/${driveId}/items/${parentId}/children`, {
+      name: folderName,
+      folder: {},
+      "@microsoft.graph.conflictBehavior": "replace",
+    });
+    return created.id;
+  };
+
+  const yearFolderId  = await ensureFolder(rootItemId, year);
+  const monthFolderId = await ensureFolder(yearFolderId, month);
+
+  // 5. 파일 업로드
+  const arrayBuffer = await file.arrayBuffer();
+  const uploadRes   = await fetch(
+    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${monthFolderId}:/${encodeURIComponent(file.name)}:/content`,
+    { method:"PUT", headers:{ Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" }, body: arrayBuffer }
+  );
+  if (!uploadRes.ok) throw new Error(`파일 업로드 실패: ${uploadRes.status}`);
+  const uploaded = await uploadRes.json();
+
+  return {
+    name:     uploaded.name,
+    url:      uploaded.webUrl,
+    teamsUrl: uploaded.webUrl,
+    size:     uploaded.size,
+    uploadedAt: today(),
+  };
+};
+
+// ─── Activity Modal (Teams 업로드 포함) ──────────────────────────────────────
 function ActivityModal({ act, onSave, onClose }) {
-  const [f,sF]=useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
-  const s=k=>v=>sF(p=>({...p,[k]:v}));
+  const [f,         sF]       = useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
+  const [teamsFile, setTF]    = useState(null);   // 선택된 파일
+  const [uploading, setUL]    = useState(false);
+  const [uploadResult, setUR] = useState(act?.teamsFile||null);
+  const [uploadErr,  setUE]   = useState("");
+  const s = k => v => sF(p=>({...p,[k]:v}));
+
+  const isMeeting = f.type === "방문미팅";
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) { setTF(file); setUR(null); setUE(""); }
+  };
+
+  const handleUpload = async () => {
+    if (!teamsFile) return;
+    setUL(true); setUE("");
+    try {
+      const result = await uploadToTeams(teamsFile, f.date);
+      setUR(result);
+      setTF(null);
+    } catch(e) {
+      setUE(e.message || "업로드 실패");
+    }
+    setUL(false);
+  };
+
+  const handleSave = () => {
+    onSave({ ...f, id:act?.id||uid(), teamsFile:uploadResult||undefined });
+  };
+
   return <Modal title={act?"활동 수정":"활동 기록"} onClose={onClose}>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
@@ -663,9 +786,70 @@ function ActivityModal({ act, onSave, onClose }) {
       </div>
       <Inp label="담당자" value={f.by} onChange={s("by")}/>
     </div>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+
+    {/* 방문미팅 전용 — 외부활동보고서 Teams 업로드 */}
+    {isMeeting && (
+      <div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"16px 18px" }}>
+        <div style={{ fontSize:12, fontWeight:700, color:C.textMuted, letterSpacing:".06em", textTransform:"uppercase", marginBottom:10 }}>
+          📎 외부활동보고서 — Teams 업로드
+        </div>
+
+        {/* 업로드 완료 */}
+        {uploadResult ? (
+          <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:C.greenSoft, border:`1px solid ${C.green}30`, borderRadius:8 }}>
+            <span style={{ fontSize:20 }}>✅</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:C.green }}>{uploadResult.name}</div>
+              <div style={{ fontSize:11, color:C.textMuted }}>Teams에 업로드 완료 · {uploadResult.uploadedAt}</div>
+            </div>
+            <a href={uploadResult.url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize:11, color:C.accent, textDecoration:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
+              열기
+            </a>
+            <button onClick={()=>setUR(null)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:12 }}>✕</button>
+          </div>
+        ) : (
+          <div>
+            {/* 파일 선택 */}
+            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+              <label style={{ flex:1, display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.surface, border:`1.5px dashed ${teamsFile?C.accent:C.border}`, borderRadius:8, cursor:"pointer", transition:"border-color .15s" }}>
+                <span style={{ fontSize:16 }}>📄</span>
+                <span style={{ fontSize:13, color:teamsFile?C.text:C.textDim }}>
+                  {teamsFile ? teamsFile.name : "Word 파일 선택 (.docx, .doc)"}
+                </span>
+                <input type="file" accept=".docx,.doc,.pdf" onChange={handleFileChange} style={{ display:"none" }}/>
+              </label>
+              {teamsFile && !uploading && (
+                <button onClick={handleUpload}
+                  style={{ padding:"10px 18px", background:C.accent, color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0, fontFamily:"inherit" }}>
+                  Teams 업로드
+                </button>
+              )}
+              {uploading && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", color:C.textMuted, fontSize:13 }}>
+                  <div style={{ width:16, height:16, border:`2px solid ${C.border}`, borderTop:`2px solid ${C.accent}`, borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
+                  업로드 중...
+                </div>
+              )}
+            </div>
+            {/* 업로드 경로 안내 */}
+            <div style={{ fontSize:11, color:C.textDim, marginTop:8 }}>
+              업로드 위치: {TEAMS_TEAM_NAME} › {TEAMS_CHANNEL_NAME} › {new Date(f.date||today()).getFullYear()}년 › {String(new Date(f.date||today()).getMonth()+1).padStart(2,"0")}월
+            </div>
+            {/* 에러 */}
+            {uploadErr && (
+              <div style={{ marginTop:8, fontSize:12, color:C.red, background:C.redSoft, borderRadius:7, padding:"8px 12px" }}>
+                ⚠ {uploadErr}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )}
+
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:16 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={()=>onSave({...f,id:act?.id||uid()})}>저장</Btn>
+      <Btn onClick={handleSave}>저장</Btn>
     </div>
   </Modal>;
 }
@@ -1379,6 +1563,19 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
               <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
               <div style={{ fontSize:13, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.clientRequest}</div>
+            </div>
+          )}
+          {a.teamsFile && (
+            <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:10, padding:"9px 14px", background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:8 }}>
+              <span style={{ fontSize:16 }}>📄</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.teamsFile.name}</div>
+                <div style={{ fontSize:11, color:C.textMuted }}>Teams 외부활동보고서 · {a.teamsFile.uploadedAt}</div>
+              </div>
+              <a href={a.teamsFile.url} target="_blank" rel="noopener noreferrer" download
+                style={{ fontSize:11, color:"#fff", background:C.accent, textDecoration:"none", borderRadius:6, padding:"4px 12px", flexShrink:0, fontWeight:600 }}>
+                다운로드
+              </a>
             </div>
           )}
         </div>
