@@ -685,54 +685,123 @@ const graphPost = async (token, path, body) => {
 // 연도/월 폴더 없으면 자동 생성 후 파일 업로드
 const uploadToTeams = async (file, date) => {
   const token = await getGraphToken();
+  console.log("[Teams] 토큰 획득 성공");
 
-  // 1. 하드코딩된 팀/채널 ID 사용 (동적 조회 불필요)
   const teamId    = TEAMS_TEAM_ID;
   const channelId = TEAMS_CHANNEL_ID;
 
-  // 2. 채널 파일 폴더(드라이브) 가져오기
+  // 1. 채널 파일 폴더 가져오기
+  console.log("[Teams] 채널 파일 폴더 조회 중...");
   const filesFolder = await graphGet(token, `/teams/${teamId}/channels/${channelId}/filesFolder`);
-  const driveId     = filesFolder.parentReference?.driveId;
-  const rootItemId  = filesFolder.id;
+  console.log("[Teams] filesFolder name:", filesFolder.name, "id:", filesFolder.id);
+  const driveId    = filesFolder.parentReference?.driveId;
+  const rootItemId = filesFolder.id;
+  console.log("[Teams] driveId:", driveId, "rootItemId:", rootItemId);
 
-  // 4. 연도/월 폴더 자동 생성
+  // 2. 연도/월 폴더 자동 생성
   const d     = new Date(date || today());
   const year  = String(d.getFullYear());
   const month = String(d.getMonth()+1).padStart(2,"0") + "월";
+  console.log("[Teams] 폴더 경로:", filesFolder.name, ">", year, ">", month);
 
   const ensureFolder = async (parentId, folderName) => {
-    // 폴더 목록 조회
+    console.log(`[Teams] 폴더 확인 중: "${folderName}"`);
     try {
-      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children?$filter=name eq '${folderName}'`);
-      const existing  = children.value.find(i => i.name === folderName && i.folder);
-      if (existing) return existing.id;
-    } catch(e) {}
-    // 없으면 생성
+      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children`);
+      const existing = children.value?.find(i => i.name === folderName && i.folder);
+      if (existing) { console.log(`[Teams] 폴더 존재: "${folderName}" (${existing.id})`); return existing.id; }
+    } catch(e) { console.warn("[Teams] 폴더 조회 실패:", e.message); }
+    console.log(`[Teams] 폴더 생성: "${folderName}"`);
     const created = await graphPost(token, `/drives/${driveId}/items/${parentId}/children`, {
       name: folderName,
       folder: {},
-      "@microsoft.graph.conflictBehavior": "replace",
+      "@microsoft.graph.conflictBehavior": "rename",
     });
+    console.log(`[Teams] 폴더 생성 완료: "${folderName}" (${created.id})`);
     return created.id;
   };
 
   const yearFolderId  = await ensureFolder(rootItemId, year);
   const monthFolderId = await ensureFolder(yearFolderId, month);
 
-  // 5. 파일 업로드
+  // 3. 파일 업로드
+  console.log("[Teams] 파일 업로드 시작:", file.name);
   const arrayBuffer = await file.arrayBuffer();
-  const uploadRes   = await fetch(
+  const uploadRes = await fetch(
     `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${monthFolderId}:/${encodeURIComponent(file.name)}:/content`,
     { method:"PUT", headers:{ Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" }, body: arrayBuffer }
   );
-  if (!uploadRes.ok) throw new Error(`파일 업로드 실패: ${uploadRes.status}`);
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    console.error("[Teams] 업로드 실패:", uploadRes.status, errText);
+    throw new Error(`파일 업로드 실패 (${uploadRes.status}): ${errText}`);
+  }
   const uploaded = await uploadRes.json();
+  console.log("[Teams] 업로드 성공:", uploaded.webUrl);
+  console.log("[Teams] 저장 경로:", uploaded.parentReference?.path);
+
+  // 저장 경로를 사람이 읽기 쉽게 표시
+  const uploadPath = `${TEAMS_TEAM_NAME} › ${TEAMS_CHANNEL_NAME} › ${year} › ${month}`;
 
   return {
-    name:     uploaded.name,
-    url:      uploaded.webUrl,
-    teamsUrl: uploaded.webUrl,
-    size:     uploaded.size,
+    name:       uploaded.name,
+    url:        uploaded.webUrl,
+    size:       uploaded.size,
+    uploadedAt: today(),
+    uploadPath, // 어디에 저장됐는지 표시
+  };
+};
+
+  // 3. 연도/월 폴더 자동 생성
+  const d     = new Date(date || today());
+  const year  = String(d.getFullYear());
+  const month = String(d.getMonth()+1).padStart(2,"0") + "월";
+  console.log("[Teams] 폴더 경로:", year, ">", month);
+
+  const ensureFolder = async (parentId, folderName) => {
+    console.log(`[Teams] 폴더 확인 중: "${folderName}" (parentId: ${parentId})`);
+    try {
+      const children = await graphGet(token, `/drives/${driveId}/items/${parentId}/children?$filter=name eq '${encodeURIComponent(folderName)}'`);
+      const existing = children.value?.find(i => i.name === folderName && i.folder);
+      if (existing) { console.log(`[Teams] 폴더 존재: "${folderName}" (${existing.id})`); return existing.id; }
+    } catch(e) { console.warn("[Teams] 폴더 조회 실패, 새로 생성:", e.message); }
+    console.log(`[Teams] 폴더 생성: "${folderName}"`);
+    const created = await graphPost(token, `/drives/${driveId}/items/${parentId}/children`, {
+      name: folderName,
+      folder: {},
+      "@microsoft.graph.conflictBehavior": "rename",
+    });
+    console.log(`[Teams] 폴더 생성 완료: "${folderName}" (${created.id})`);
+    return created.id;
+  };
+
+  const yearFolderId  = await ensureFolder(rootItemId, year);
+  const monthFolderId = await ensureFolder(yearFolderId, month);
+  console.log("[Teams] 최종 업로드 폴더 ID:", monthFolderId);
+
+  // 4. 파일 업로드
+  console.log("[Teams] 파일 업로드 시작:", file.name, file.size, "bytes");
+  const arrayBuffer = await file.arrayBuffer();
+  const uploadUrl   = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${monthFolderId}:/${encodeURIComponent(file.name)}:/content`;
+  console.log("[Teams] 업로드 URL:", uploadUrl);
+  const uploadRes = await fetch(uploadUrl, {
+    method:"PUT",
+    headers:{ Authorization:`Bearer ${token}`, "Content-Type": file.type||"application/octet-stream" },
+    body: arrayBuffer,
+  });
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    console.error("[Teams] 업로드 실패:", uploadRes.status, errText);
+    throw new Error(`파일 업로드 실패 (${uploadRes.status}): ${errText}`);
+  }
+  const uploaded = await uploadRes.json();
+  console.log("[Teams] 업로드 성공:", uploaded.webUrl);
+
+  return {
+    name:       uploaded.name,
+    url:        uploaded.webUrl,
+    teamsUrl:   uploaded.webUrl,
+    size:       uploaded.size,
     uploadedAt: today(),
   };
 };
@@ -794,7 +863,9 @@ function ActivityModal({ act, onSave, onClose }) {
             <span style={{ fontSize:20 }}>✅</span>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:600, color:C.green }}>{uploadResult.name}</div>
-              <div style={{ fontSize:11, color:C.textMuted }}>Teams에 업로드 완료 · {uploadResult.uploadedAt}</div>
+              <div style={{ fontSize:11, color:C.textMuted }}>
+                {uploadResult.uploadPath || "Teams 업로드 완료"} · {uploadResult.uploadedAt}
+              </div>
             </div>
             <a href={uploadResult.url} target="_blank" rel="noopener noreferrer"
               style={{ fontSize:11, color:C.accent, textDecoration:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
@@ -1549,7 +1620,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <Btn size="sm" variant="ghost" onClick={()=>setAM(a)}>수정</Btn>
-              <Btn size="sm" variant="danger" onClick={()=>onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,activities:(o.activities||[]).filter(x=>x.id!==a.id)}:o))}>삭제</Btn>
+              <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`활동 기록 "${a.content?.slice(0,30)||a.type}"을 삭제하시겠습니까?`)) onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,activities:(o.activities||[]).filter(x=>x.id!==a.id)}:o)); }}>삭제</Btn>
             </div>
           </div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.content}</div>
@@ -1564,7 +1635,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               <span style={{ fontSize:16 }}>📄</span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.teamsFile.name}</div>
-                <div style={{ fontSize:11, color:C.textMuted }}>Teams 외부활동보고서 · {a.teamsFile.uploadedAt}</div>
+                <div style={{ fontSize:11, color:C.textMuted }}>{a.teamsFile.uploadPath || `Teams 외부활동보고서`} · {a.teamsFile.uploadedAt}</div>
               </div>
               <a href={a.teamsFile.url} target="_blank" rel="noopener noreferrer" download
                 style={{ fontSize:11, color:"#fff", background:C.accent, textDecoration:"none", borderRadius:6, padding:"4px 12px", flexShrink:0, fontWeight:600 }}>
@@ -1591,7 +1662,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <div style={{ fontSize:11, color:C.textMuted, marginTop:3 }}>{f.type} · {f.date}</div>
           </div>
           <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:12, color:C.accent, textDecoration:"none", padding:"4px 10px", border:`1px solid ${C.accentGlow}`, borderRadius:6 }}>열기 ↗</a>
-          <Btn size="sm" variant="danger" onClick={()=>update({files:opp.files.filter(x=>x.id!==f.id)})}>삭제</Btn>
+          <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`파일 "${f.name}"을 삭제하시겠습니까?`)) update({files:opp.files.filter(x=>x.id!==f.id)}); }}>삭제</Btn>
         </div>)}
       </div>
     </div>}
@@ -1619,7 +1690,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700 }}>{a.priority}</span>
           <div style={{ display:"flex", gap:6 }}>
             <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>수정</Btn>
-            <Btn size="sm" variant="danger" onClick={()=>onUpdateActions(prev=>prev.filter(x=>x.id!==a.id))}>삭제</Btn>
+            <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) onUpdateActions(prev=>prev.filter(x=>x.id!==a.id)); }}>삭제</Btn>
           </div>
         </div>;
       })}
@@ -2758,7 +2829,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
           <div style={{ width:38, height:38, borderRadius:8, background:`${FILE_CLR[f.type]||C.textMuted}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{FILE_ICO[f.type]}</div>
           <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:13, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div><div style={{ fontSize:11, color:C.textMuted }}>{f.type} · {f.date}</div></div>
           <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:C.accent, textDecoration:"none" }}>열기↗</a>
-          <Btn size="sm" variant="danger" onClick={()=>update({files:data.files.filter(x=>x.id!==f.id)})}>삭제</Btn>
+          <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`파일 "${f.name}"을 삭제하시겠습니까?`)) update({files:data.files.filter(x=>x.id!==f.id)}); }}>삭제</Btn>
         </div>)}
       </div>
     </div>}
@@ -3511,7 +3582,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
             {/* Actions */}
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
               <Btn size="sm" variant="ghost" onClick={()=>sM(a)}>수정</Btn>
-              <Btn size="sm" variant="danger" onClick={()=>del(a.id)}>삭제</Btn>
+              <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) del(a.id); }}>삭제</Btn>
             </div>
           </div>
         </Card>;
