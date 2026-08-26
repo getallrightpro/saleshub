@@ -651,16 +651,16 @@ function StageMoveModal({ opp, onSave, onClose }) {
 
 // Activity Modal
 // ─── Teams / Graph API 파일 업로드 ──────────────────────────────────────────
+const TEAMS_TEAM_ID      = "eff66e69-78ea-4bf1-a479-42e1cccad3ed";
+const TEAMS_CHANNEL_ID   = "19:r1-oLWpDxH2lBQWP7HVzF5xM2V2okh-6qCXoqKCVG5U1@thread.tacv2";
 const TEAMS_TEAM_NAME    = "[강원에너지]영업본부";
 const TEAMS_CHANNEL_NAME = "영업및외부활동보고서";
 
 const getGraphToken = async () => {
   const account = msalInstance.getAllAccounts()[0];
   if (!account) throw new Error("로그인 계정 없음");
-  const res = await msalInstance.acquireTokenSilent({
-    scopes:  ["Files.ReadWrite.All", "Sites.ReadWrite.All"],
-    account,
-  });
+  const scopes = ["Files.ReadWrite.All", "Sites.ReadWrite.All"];
+  const res = await msalInstance.acquireTokenSilent({ scopes, account });
   return res.accessToken;
 };
 
@@ -686,18 +686,12 @@ const graphPost = async (token, path, body) => {
 const uploadToTeams = async (file, date) => {
   const token = await getGraphToken();
 
-  // 1. 팀 찾기
-  const teams = await graphGet(token, "/me/joinedTeams");
-  const team  = teams.value.find(t => t.displayName === TEAMS_TEAM_NAME);
-  if (!team) throw new Error(`"${TEAMS_TEAM_NAME}" 팀을 찾을 수 없습니다`);
+  // 1. 하드코딩된 팀/채널 ID 사용 (동적 조회 불필요)
+  const teamId    = TEAMS_TEAM_ID;
+  const channelId = TEAMS_CHANNEL_ID;
 
-  // 2. 채널 찾기
-  const channels = await graphGet(token, `/teams/${team.id}/channels`);
-  const channel  = channels.value.find(c => c.displayName === TEAMS_CHANNEL_NAME);
-  if (!channel) throw new Error(`"${TEAMS_CHANNEL_NAME}" 채널을 찾을 수 없습니다`);
-
-  // 3. 채널 파일 폴더(드라이브) 가져오기
-  const filesFolder = await graphGet(token, `/teams/${team.id}/channels/${channel.id}/filesFolder`);
+  // 2. 채널 파일 폴더(드라이브) 가져오기
+  const filesFolder = await graphGet(token, `/teams/${teamId}/channels/${channelId}/filesFolder`);
   const driveId     = filesFolder.parentReference?.driveId;
   const rootItemId  = filesFolder.id;
 
