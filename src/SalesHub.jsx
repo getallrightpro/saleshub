@@ -775,16 +775,24 @@ const uploadToTeams = async (file, date) => {
 // ─── Activity Modal (Teams 업로드 포함) ──────────────────────────────────────
 function ActivityModal({ act, onSave, onClose }) {
   const [f,         sF]       = useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
-  const [teamsFile, setTF]    = useState(null);   // 선택된 파일
-  const [uploading, setUL]    = useState(false);
-  const [uploadResult, setUR] = useState(act?.teamsFile||null);
-  const [uploadErr,  setUE]   = useState("");
+  const [teamsFile,    setTF]    = useState(null);
+  const [uploading,    setUL]    = useState(false);
+  const [uploadResult, setUR]    = useState(act?.teamsFile||null);
+  const [uploadErr,    setUE]    = useState("");
+  const [draggingOver, setDraggingOver] = useState(false);
   const s = k => v => sF(p=>({...p,[k]:v}));
 
   const isMeeting = f.type === "방문미팅";
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
+    if (file) { setTF(file); setUR(null); setUE(""); }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
     if (file) { setTF(file); setUR(null); setUE(""); }
   };
 
@@ -841,31 +849,61 @@ function ActivityModal({ act, onSave, onClose }) {
           </div>
         ) : (
           <div>
-            {/* 파일 선택 */}
-            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-              <label style={{ flex:1, display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.surface, border:`1.5px dashed ${teamsFile?C.accent:C.border}`, borderRadius:8, cursor:"pointer", transition:"border-color .15s" }}>
-                <span style={{ fontSize:16 }}>📄</span>
-                <span style={{ fontSize:13, color:teamsFile?C.text:C.textDim }}>
-                  {teamsFile ? teamsFile.name : "Word 파일 선택 (.docx, .doc)"}
-                </span>
-                <input type="file" accept=".docx,.doc,.pdf" onChange={handleFileChange} style={{ display:"none" }}/>
-              </label>
-              {teamsFile && !uploading && (
-                <button onClick={handleUpload}
-                  style={{ padding:"10px 18px", background:C.accent, color:"#fff", border:"none", borderRadius:8, fontSize:13, fontWeight:700, cursor:"pointer", flexShrink:0, fontFamily:"inherit" }}>
-                  Teams 업로드
-                </button>
-              )}
-              {uploading && (
-                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", color:C.textMuted, fontSize:13 }}>
-                  <div style={{ width:16, height:16, border:`2px solid ${C.border}`, borderTop:`2px solid ${C.accent}`, borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
-                  업로드 중...
+            {/* 드래그앤드롭 + 클릭 파일 선택 영역 */}
+            <label
+              onDragOver={e=>{ e.preventDefault(); setDraggingOver(true); }}
+              onDragLeave={()=>setDraggingOver(false)}
+              onDrop={handleDrop}
+              style={{
+                display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+                gap:8, padding:"24px 16px",
+                background: draggingOver ? C.accentSoft : C.surface,
+                border:`2px dashed ${draggingOver ? C.accent : teamsFile ? C.accent : C.border}`,
+                borderRadius:10, cursor:"pointer", transition:"all .15s",
+                marginBottom:10,
+              }}>
+              <span style={{ fontSize:32 }}>{draggingOver ? "📂" : teamsFile ? "📄" : "📁"}</span>
+              {teamsFile ? (
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.accent }}>{teamsFile.name}</div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                    {(teamsFile.size/1024).toFixed(0)} KB · 클릭해서 다른 파일 선택
+                  </div>
+                </div>
+              ) : (
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:draggingOver ? C.accent : C.text }}>
+                    {draggingOver ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 선택"}
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                    .docx, .doc, .pdf 지원
+                  </div>
                 </div>
               )}
-            </div>
+              <input type="file" accept=".docx,.doc,.pdf" onChange={handleFileChange} style={{ display:"none" }}/>
+            </label>
+
+            {/* 업로드 버튼 / 로딩 */}
+            {teamsFile && !uploading && (
+              <button onClick={handleUpload} style={{
+                width:"100%", padding:"11px", background:C.accent, color:"#fff",
+                border:"none", borderRadius:8, fontSize:13, fontWeight:700,
+                cursor:"pointer", fontFamily:"inherit", display:"flex",
+                alignItems:"center", justifyContent:"center", gap:8,
+              }}>
+                <span>☁</span> Teams에 업로드
+              </button>
+            )}
+            {uploading && (
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, padding:"12px", background:C.accentSoft, borderRadius:8, fontSize:13, color:C.accent, fontWeight:600 }}>
+                <div style={{ width:16, height:16, border:`2px solid ${C.accentGlow}`, borderTop:`2px solid ${C.accent}`, borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
+                Teams에 업로드 중...
+              </div>
+            )}
+
             {/* 업로드 경로 안내 */}
-            <div style={{ fontSize:11, color:C.textDim, marginTop:8 }}>
-              업로드 위치: {TEAMS_TEAM_NAME} › {TEAMS_CHANNEL_NAME} › {new Date(f.date||today()).getFullYear()}년 › {String(new Date(f.date||today()).getMonth()+1).padStart(2,"0")}월
+            <div style={{ fontSize:11, color:C.textDim, marginTop:8, textAlign:"center" }}>
+              저장 위치: {TEAMS_CHANNEL_NAME} › {new Date(f.date||today()).getFullYear()} › {String(new Date(f.date||today()).getMonth()+1).padStart(2,"0")}월
             </div>
             {/* 에러 */}
             {uploadErr && (
