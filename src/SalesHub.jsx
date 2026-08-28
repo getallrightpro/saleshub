@@ -148,7 +148,160 @@ function ThemeToggle() {
   );
 }
 
-// ─── Pipeline Stages ────────────────────────────────────────────────────────
+// ─── i18n — 다국어 지원 ──────────────────────────────────────────────────────
+let _lang = (typeof localStorage !== "undefined" && localStorage.getItem("sh-lang")) || "ko";
+let _langListeners = [];
+const getLang = () => _lang;
+const setLang  = (l) => {
+  _lang = l;
+  if (typeof localStorage !== "undefined") localStorage.setItem("sh-lang", l);
+  _langListeners.forEach(fn => fn(l));
+};
+const useLang = () => {
+  const [l, sL] = useState(_lang);
+  useEffect(() => {
+    const fn = (nl) => sL(nl);
+    _langListeners.push(fn);
+    return () => { _langListeners = _langListeners.filter(f=>f!==fn); };
+  }, []);
+  return [l, setLang];
+};
+
+const TRANSLATIONS = {
+  ko: {
+    // 탭
+    dashboard:"대시보드", pipeline:"파이프라인", tracker:"목표 트래킹",
+    clientdb:"고객사 DB", actions:"액션",
+    // 대시보드
+    activePipeline:t("activePipeline"), weightedRevenue:t("weightedRevenue"),
+    wonDeals:t("wonDeals"), pendingActions:t("pendingActions"),
+    inProgress:"진행 중 딜", probabilityReflected:"확률 반영",
+    dealsCompleted:"건 완료", overdueCount:"개 기한 초과",
+    // 파이프라인
+    addOpp:t("addOpp"), kanban:"칸반", list:"리스트",
+    stageFilter:"단계", ownerFilter:"담당자", allStages:"전체 사업부",
+    active:"활성", won:"수주확정", lost:"손실", all:"전체",
+    noDeals:"비어 있음",
+    // 영업기회 상세
+    overview:"개요", strategy:"단계별 전략", stageLog:"단계 히스토리",
+    activities:"활동 기록", files:"파일", actionsTab:"액션", news:"📰 뉴스",
+    changeStage:"단계 변경 →", archive:"📦 아카이브", permDelete:"🗑 영구삭제",
+    addActivity:"+ 활동 기록", addFile:"+ 파일", addAction:"+ 액션 추가",
+    editOpp:t("editOpp"), save:"저장", cancel:"취소",
+    expectedRevenue:"예상 수주 금액", weightedSales:"가중 매출",
+    successRate:"성공 확률", expectedClose:"예상 계약일",
+    businessUnit:"사업부", owner:"담당자",
+    // 단계
+    lead:"리드", firstContact:"초기접촉", techReview:"기술협의",
+    firstQuote:"초도견적", reQuote:"재견적", negotiation:"견적검토/협상",
+    wonStage:"수주확정", lostStage:"손실",
+    // 활동
+    addActivityRecord:"활동 기록", date:"날짜", type:"유형",
+    content:"활동 내용", clientRequest:"고객사 요청사항", by:"담당자",
+    visitMeeting:"방문미팅", call:"전화통화", video:"화상회의",
+    email:"이메일", lunch:"식사미팅", contract:"계약체결", other:"기타",
+    // 고객사 DB
+    addClient:"+ 고객사 추가", clientSearch:"고객사명 / 담당자 검색...",
+    allIndustries:"전체", clientCount:"개", contacts:"담당자",
+    history:"히스토리", noHistory:"접촉 기록 없음", avlStatus:"AVL 등록",
+    notRegistered:"미등록", underReview:"심사중", registered:"등록완료",
+    clientArchive:"아카이브", clientRestore:"↩ 복원",
+    // 액션
+    addActionBtn:"+ 액션 추가", priority:"우선순위", dueDate:"마감일",
+    high:"높음", medium:"중간", low:"낮음", done:"완료",
+    // 공통
+    saving:t("saving"), saved:t("saved"), loading:"로딩 중...",
+    noData:"데이터가 없습니다", edit:"수정", delete:"삭제",
+    confirm:"확인", back:t("back"),
+    // 알림
+    notifCenter:t("notifCenter"), unread:"미확인", markAllRead:t("markAllRead"),
+    overdue:"긴급", warning:"주의", info:"확인",
+    noActivity:"일째 활동 없음", noActionSet:"다음 액션 없음",
+    overdueAction:"기한 초과",
+    // 주간 리포트
+    weeklyReport:t("weeklyReport"), thisWeek:t("thisWeek"), lastWeek:t("lastWeek"),
+    pipelineUpdate:t("pipelineUpdate"), clientUpdate:t("clientUpdate"),
+    generateReport:t("generateReport"), regenerate:t("regenerate"),
+  },
+  en: {
+    // Tabs
+    dashboard:"Dashboard", pipeline:"Pipeline", tracker:"Goal Tracking",
+    clientdb:"Client DB", actions:"Actions",
+    // Dashboard
+    activePipeline:"Active Pipeline", weightedRevenue:"Weighted Revenue",
+    wonDeals:"Won Deals", pendingActions:"Pending Actions",
+    inProgress:"active deals", probabilityReflected:"probability weighted",
+    dealsCompleted:"deals closed", overdueCount:"overdue",
+    // Pipeline
+    addOpp:"+ Add Opportunity", kanban:"Kanban", list:"List",
+    stageFilter:"Stage", ownerFilter:"Owner", allStages:"All Units",
+    active:"Active", won:"Won", lost:"Lost", all:"All",
+    noDeals:"Empty",
+    // Opp Detail
+    overview:"Overview", strategy:"Stage Strategy", stageLog:"Stage History",
+    activities:"Activity Log", files:"Files", actionsTab:"Actions", news:"📰 News",
+    changeStage:"Change Stage →", archive:"📦 Archive", permDelete:"🗑 Delete",
+    addActivity:"+ Log Activity", addFile:"+ Add File", addAction:"+ Add Action",
+    editOpp:"✏ Edit", save:"Save", cancel:"Cancel",
+    expectedRevenue:"Expected Revenue", weightedSales:"Weighted Sales",
+    successRate:"Win Probability", expectedClose:"Expected Close",
+    businessUnit:"Business Unit", owner:"Owner",
+    // Stages
+    lead:"Lead", firstContact:"Initial Contact", techReview:"Tech Review",
+    firstQuote:"Initial Quote", reQuote:"Re-Quote", negotiation:"Negotiation",
+    wonStage:"Won", lostStage:"Lost",
+    // Activity
+    addActivityRecord:"Log Activity", date:"Date", type:"Type",
+    content:"Activity Details", clientRequest:"Client Requests", by:"By",
+    visitMeeting:"On-site Meeting", call:"Phone Call", video:"Video Meeting",
+    email:"Email", lunch:"Business Lunch", contract:"Contract Signed", other:"Other",
+    // Client DB
+    addClient:"+ Add Client", clientSearch:"Search clients / owners...",
+    allIndustries:"All", clientCount:"clients", contacts:"Contacts",
+    history:"History", noHistory:"No contact records", avlStatus:"AVL Status",
+    notRegistered:"Not Registered", underReview:"Under Review", registered:"Registered",
+    clientArchive:"Archive", clientRestore:"↩ Restore",
+    // Actions
+    addActionBtn:"+ Add Action", priority:"Priority", dueDate:"Due Date",
+    high:"High", medium:"Medium", low:"Low", done:"Done",
+    // Common
+    saving:"Saving...", saved:"Saved", loading:"Loading...",
+    noData:"No data available", edit:"Edit", delete:"Delete",
+    confirm:"Confirm", back:"← Back",
+    // Notifications
+    notifCenter:"🔔 Notifications", unread:"unread", markAllRead:"✓ Mark all read",
+    overdue:"Urgent", warning:"Warning", info:"Info",
+    noActivity:"days without activity", noActionSet:"No next action",
+    overdueAction:"Overdue",
+    // Weekly Report
+    weeklyReport:"Weekly Sales Report", thisWeek:"This Week", lastWeek:"Last Week",
+    pipelineUpdate:"📦 Pipeline Updates", clientUpdate:"🏢 Client DB Updates",
+    generateReport:"Generate Report", regenerate:"Regenerate",
+  },
+};
+
+// t() — 번역 함수
+const t = (key) => TRANSLATIONS[_lang]?.[key] || TRANSLATIONS.ko[key] || key;
+
+// Language Toggle Button
+function LangToggle() {
+  const [lang, setL] = useLang();
+  return (
+    <button
+      onClick={()=>setL(lang==="ko"?"en":"ko")}
+      title={lang==="ko"?"Switch to English":"한국어로 전환"}
+      style={{
+        height:36, padding:"0 12px", borderRadius:8, border:`1px solid ${C.border}`,
+        background:C.surfaceUp, cursor:"pointer", display:"flex", alignItems:"center",
+        justifyContent:"center", fontSize:12, fontWeight:700, transition:"all .2s",
+        color:C.textMuted, letterSpacing:".05em",
+      }}>
+      {lang==="ko" ? "EN" : "KO"}
+    </button>
+  );
+}
+
+
 const STAGES = [
   { id:"리드",          label:"리드",          prob:5,   color:"#9CA3AF" },
   { id:"초기접촉",      label:"초기접촉",      prob:15,  color:"#6B7280" },
@@ -549,7 +702,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
       <div style={{ gridColumn:"1/-1" }}><Inp label="영업 전략 메모" value={f.strategyNote} onChange={s("strategyNote")} multiline placeholder="이 딜의 핵심 전략, 유의사항 등"/></div>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
       <Btn onClick={()=>{
         const numVal = parseInt(String(f.value).replace(/[^0-9]/g,""), 10) || 0;
         onSave({
@@ -562,7 +715,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
           files:        opp?.files||[],
           stageStrategies: opp?.stageStrategies||{},
         });
-      }}>저장</Btn>
+      }}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -641,7 +794,7 @@ function StageMoveModal({ opp, onSave, onClose }) {
     )}
 
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
       <Btn variant={newStage==="수주확정"?"success":isLoss?"danger":"primary"} onClick={handleSave}>
         {isLoss ? "📌 손실 처리" : "단계 변경"}
       </Btn>
@@ -917,8 +1070,8 @@ function ActivityModal({ act, onSave, onClose }) {
     )}
 
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:16 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={handleSave}>저장</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+      <Btn onClick={handleSave}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -934,7 +1087,7 @@ function FileModal2({ onSave, onClose }) {
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
       <Btn onClick={()=>f.name&&onSave({...f,id:uid()})}>추가</Btn>
     </div>
   </Modal>;
@@ -1117,8 +1270,8 @@ function StrategyEditor({ value, stageColor, tips, onSave, onCancel }) {
         }}
       />
       <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:10 }}>
-        <Btn variant="ghost" size="sm" onClick={onCancel}>취소</Btn>
-        <Btn size="sm" onClick={()=>onSave(text)}>저장</Btn>
+        <Btn variant="ghost" size="sm" onClick={onCancel}>{t("cancel")}</Btn>
+        <Btn size="sm" onClick={()=>onSave(text)}>{t("save")}</Btn>
       </div>
     </div>
   );
@@ -1164,8 +1317,8 @@ function LossLessonEditor({ opp, onUpdate }) {
             }}
           />
           <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
-            <Btn variant="ghost" size="sm" onClick={()=>setEditing(false)}>취소</Btn>
-            <Btn size="sm" onClick={save}>저장</Btn>
+            <Btn variant="ghost" size="sm" onClick={()=>setEditing(false)}>{t("cancel")}</Btn>
+            <Btn size="sm" onClick={save}>{t("save")}</Btn>
           </div>
         </div>
       ) : opp.lessonLearned ? (
@@ -1258,13 +1411,13 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const currentIdx = ACTIVE.findIndex(s=>s.id===opp.stage);
 
   const subTabs = [
-    { id:"overview",  label:"개요"          },
-    { id:"strategy",  label:"단계별 전략"   },
-    { id:"stagelog",  label:"단계 히스토리", count:opp.stageHistory.length },
-    { id:"activities",label:"활동 기록",     count:opp.activities.length   },
-    { id:"files",     label:"파일",          count:opp.files.length        },
-    { id:"actions",   label:"액션",          count:oppActions.filter(a=>!a.done).length },
-    { id:"news",      label:"📰 뉴스"       },
+    { id:"overview",  label:t("overview") },
+    { id:"strategy",  label:t("strategy") },
+    { id:"stagelog", label:t("stageLog"),   count:opp.stageHistory.length },
+    { id:"activities",label:t("activities"),     count:opp.activities.length   },
+    { id:"files",     label:t("files"),          count:opp.files.length        },
+    { id:"actionsTab",label:t("actionsTab"),          count:oppActions.filter(a=>!a.done).length },
+    { id:"news",      label:t("news") },
   ];
 
   return <div>
@@ -1434,7 +1587,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
         <Inp label="영업 전략 메모" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
         <Inp label="고객 요구사항 / Spec" value={editForm.clientRequirements||""} onChange={v=>setEF(p=>({...p,clientRequirements:v}))} multiline placeholder="고객사의 기술 스펙, 납기 조건, 예산, 기타 요구사항을 상세히 기록하세요"/>
-        <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>취소</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>저장</Btn></div>
+        <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>{t("cancel")}</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>{t("save")}</Btn></div>
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           {[
@@ -1607,7 +1760,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     {subTab==="activities"&&<div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <span style={{ fontSize:13, color:C.textMuted }}>{opp.activities.length}건의 활동</span>
-        <Btn onClick={()=>setAM("new")}>+ 활동 기록</Btn>
+        <Btn onClick={()=>setAM("new")}>{t("addActivity")}</Btn>
       </div>
       {opp.activities.length===0&&<div style={{ textAlign:"center", padding:"60px 0", color:C.textMuted }}>기록된 활동이 없습니다</div>}
       {[...opp.activities].sort((a,b)=>b.date.localeCompare(a.date)).map((a,i,arr)=><div key={a.id} style={{ display:"flex", gap:16 }}>
@@ -1623,7 +1776,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               <span style={{ fontSize:11, color:C.textDim }}>by {a.by}</span>
             </div>
             <div style={{ display:"flex", gap:6 }}>
-              <Btn size="sm" variant="ghost" onClick={()=>setAM(a)}>수정</Btn>
+              <Btn size="sm" variant="ghost" onClick={()=>setAM(a)}>{t("edit")}</Btn>
               <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`활동 기록 "${a.content?.slice(0,30)||a.type}"을 삭제하시겠습니까?`)) onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,activities:(o.activities||[]).filter(x=>x.id!==a.id)}:o)); }}>삭제</Btn>
             </div>
           </div>
@@ -1675,7 +1828,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     {subTab==="actions"&&<div>
       <div style={{ marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <span style={{ fontSize:13, color:C.textMuted }}>{oppActions.filter(a=>!a.done).length}개 진행 · {oppActions.filter(a=>a.done).length}개 완료</span>
-        <Btn onClick={()=>setAM("addAction")}>+ 액션 추가</Btn>
+        <Btn onClick={()=>setAM("addAction")}>{t("addAction")}</Btn>
       </div>
       {oppActions.length===0&&<div style={{ textAlign:"center", padding:"48px 0", color:C.textMuted }}>
         <div style={{ fontSize:32, marginBottom:12 }}>✓</div>
@@ -1693,7 +1846,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           </div>
           <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700 }}>{a.priority}</span>
           <div style={{ display:"flex", gap:6 }}>
-            <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>수정</Btn>
+            <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>{t("edit")}</Btn>
             <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) onUpdateActions(prev=>prev.filter(x=>x.id!==a.id)); }}>삭제</Btn>
           </div>
         </div>;
@@ -1974,8 +2127,8 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       {/* Metrics row — Chartio 스타일 */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:14 }}>
         {[
-          { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent, icon:"◈" },
-          { label:"가중 예상 매출",  val:fmt(weighted),   sub:"성공 확률 반영",            color:C.purple, icon:"◉" },
+          { label:t("activePipeline"), val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent, icon:"◈" },
+          { label:t("weightedRevenue"),  val:fmt(weighted),   sub:"성공 확률 반영",            color:C.purple, icon:"◉" },
           { label:"누적 수주확정",   val:fmt(wonTotal),   sub:`${wonCount}건 완료`,        color:C.green,  icon:"◎" },
           { label:"승률",            val:`${winRate}%`,   sub:`${closedCount}건 마감 기준`,color:winRate>=50?C.green:C.yellow, icon:"▦" },
         ].map(m=>(
@@ -2039,7 +2192,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
       <div style={{ marginBottom:16 }}>
         {/* 1행: 단계 필터 + 유형 필터 */}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
-          {["활성","수주확정","손실","전체"].map(f=><button key={f} onClick={()=>setStage(f)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f?C.accent:C.border}`, background:stageFilter===f?C.accentSoft:"transparent", color:stageFilter===f?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{f}</button>)}
+          {[{label:t("active"),val:"활성"},{label:t("won"),val:"수주확정"},{label:t("lost"),val:"손실"},{label:t("all"),val:"전체"}].map((f,fi)=><button key={f} onClick={()=>setStage(f.val)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f.val?C.accent:C.border}`, background:stageFilter===f.val?C.accentSoft:"transparent", color:stageFilter===f.val?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{f.label}</button>)}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
           {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>전체 사업부</button>}
           <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
@@ -2058,9 +2211,9 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
           </div>
           <div style={{ display:"flex", gap:8, flexShrink:0 }}>
             <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-              {[{id:"kanban",label:"칸반"},{id:"list",label:"리스트"}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?"#fff":C.textMuted, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{v.label}</button>)}
+              {[{id:"kanban",label:t("kanban")},{id:"list",label:t("list")}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?"#fff":C.textMuted, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{v.label}</button>)}
             </div>
-            <Btn onClick={()=>setAddModal(true)} style={{ whiteSpace:"nowrap" }}>+ 영업기회 추가</Btn>
+            <Btn onClick={()=>setAddModal(true)} style={{ whiteSpace:"nowrap" }}>{t("addOpp")}</Btn>
           </div>
         </div>
       </div>
@@ -2095,7 +2248,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initi
 
       <div style={{ display:"grid", gap:10 }}>
         {(archived||[])
-          .filter(o => !archSearch || o.name.includes(archSearch) || (clients.find(c=>c.id===o.accountId)?.name||"").includes(archSearch))
+          .filter(o => { const q=archSearch.toLowerCase(); return !q||o.name.toLowerCase().includes(q)||(clients.find(c=>c.id===o.accountId)?.name||"").toLowerCase().includes(q); })
           .map(o => {
             const cl = clients.find(c=>c.id===o.accountId)||{};
             const s  = STAGE_MAP[o.stage]||{};
@@ -2228,8 +2381,8 @@ function ContactModal({ contact, contacts, onSave, onClose }) {
     </div>}
 
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:8 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={()=>onSave({...f, id:contact?.id||uid()})}>저장</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+      <Btn onClick={()=>onSave({...f, id:contact?.id||uid()})}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -2263,7 +2416,7 @@ function ContactsTab({ contacts, onEdit, onDelete }) {
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:6 }}>
-                  <Btn size="sm" variant="ghost" onClick={()=>onEdit(c)}>수정</Btn>
+                  <Btn size="sm" variant="ghost" onClick={()=>onEdit(c)}>{t("edit")}</Btn>
                   <Btn size="sm" variant="danger" onClick={()=>onDelete(c.id)}>삭제</Btn>
                 </div>
               </div>
@@ -2409,7 +2562,7 @@ function DBHistoryModal({ item, onSave, onClose }) {
       <div style={{ gridColumn:"1/-1" }}><Inp label="내용" value={f.content} onChange={s("content")} multiline/></div>
       <Inp label="작성자" value={f.by} onChange={s("by")}/>
     </div>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>취소</Btn><Btn onClick={()=>onSave({...f,id:item?.id||uid()})}>저장</Btn></div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn><Btn onClick={()=>onSave({...f,id:item?.id||uid()})}>{t("save")}</Btn></div>
   </Modal>;
 }
 
@@ -2423,7 +2576,7 @@ function DBFileModal({ onSave, onClose }) {
       <div style={{ gridColumn:"1/-1" }}><Inp label="링크 URL" value={f.url} onChange={s("url")} placeholder="https://..."/></div>
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
     </div>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>취소</Btn><Btn onClick={()=>f.name&&onSave({...f,id:uid()})}>추가</Btn></div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn><Btn onClick={()=>f.name&&onSave({...f,id:uid()})}>추가</Btn></div>
   </Modal>;
 }
 
@@ -2695,7 +2848,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
         <div style={{ gridColumn:"1/-1" }}><Inp label="주소" value={form.address} onChange={v=>setForm(p=>({...p,address:v}))}/></div>
         <div style={{ gridColumn:"1/-1" }}><Inp label="영업 메모" value={form.note} onChange={v=>setForm(p=>({...p,note:v}))} multiline/></div>
       </div>
-      <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>취소</Btn><Btn onClick={()=>{update(form);setEdit(false);}}>저장</Btn></div>
+      <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>{t("cancel")}</Btn><Btn onClick={()=>{update(form);setEdit(false);}}>{t("save")}</Btn></div>
     </div>:<div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:14 }}>
         {[{label:"사업자번호",value:data.bizNo},{label:"기업규모",value:data.size},{label:"설립연도",value:data.founded?`${data.founded}년`:""},{label:"웹사이트",value:data.website,link:true}].map(it=><div key={it.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px" }}>
@@ -2970,8 +3123,8 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
       <Inp label="영업 담당자" value={f.owner} onChange={s("owner")} placeholder="예: 김민준"/>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={handleSave} style={{ opacity: exactMatch && !confirmed ? 0.4 : 1 }}>저장</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+      <Btn onClick={handleSave} style={{ opacity: exactMatch && !confirmed ? 0.4 : 1 }}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -2993,7 +3146,10 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
   const industries = ["전체", ...new Set(clients.map(c => c.industry).filter(Boolean))];
   const list = clients
     .filter(c => indFilter==="전체" || c.industry===indFilter)
-    .filter(c => c.name.includes(search) || (c.owner||"").includes(search));
+    .filter(c => {
+      const q = search.toLowerCase();
+      return !q || c.name.toLowerCase().includes(q) || (c.owner||"").toLowerCase().includes(q) || (c.industry||"").toLowerCase().includes(q);
+    });
 
   const handleSave = (data) => {
     if (modal === "add") {
@@ -3022,10 +3178,10 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
     {/* ── 활성 고객사 ── */}
     {clientTab==="active" && <div>
       <div style={{ display:"flex", gap:12, marginBottom:20, flexWrap:"wrap", alignItems:"center" }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="고객사명 / 담당자 검색..." style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 14px", color:C.text, fontSize:14, outline:"none", width:260 }}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t("clientSearch")} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 14px", color:C.text, fontSize:14, outline:"none", width:260 }}/>
         {industries.map(ind=><button key={ind} onClick={()=>setInd(ind)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${indFilter===ind?C.accent:C.border}`, background:indFilter===ind?C.accentSoft:"transparent", color:indFilter===ind?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{ind}</button>)}
         <span style={{ marginLeft:"auto", fontSize:12, color:C.textMuted }}>{list.length}개</span>
-        <Btn onClick={()=>setModal("add")}>+ 고객사 추가</Btn>
+        <Btn onClick={()=>setModal("add")}>{t("addClient")}</Btn>
       </div>
 
       {list.length === 0 && (
@@ -3113,7 +3269,10 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
 
       <div style={{ display:"grid", gap:12 }}>
         {(archivedClients||[])
-          .filter(c => !archSearch || c.name.includes(archSearch) || (c.owner||"").includes(archSearch))
+          .filter(c => {
+            const q = archSearch.toLowerCase();
+            return !q || c.name.toLowerCase().includes(q) || (c.owner||"").toLowerCase().includes(q);
+          })
           .map(c => {
             const adb   = archivedDb?.[c.id] || {};
             const cOpps = opps.filter(o => o.accountId === c.id);
@@ -3185,13 +3344,13 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
     {dashTab==="overview" && <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:24 }}>
         {[
-          { label:"활성 파이프라인", val:fmt(totalPipe), sub:`${activeOpps.length}개 진행 중 딜`, color:C.accent, icon:"◈",
+          { label:t("activePipeline"), val:fmt(totalPipe), sub:`${activeOpps.length}개 진행 중 딜`, color:C.accent, icon:"◈",
             tip:"손실·수주확정 제외, 현재 진행 중인 딜의 예상 수주 금액 합계입니다." },
-          { label:"가중 예상 매출", val:fmt(weighted),  sub:"확률 반영",                           color:C.purple, icon:"◉",
+          { label:t("weightedRevenue"), val:fmt(weighted),  sub:"확률 반영",                           color:C.purple, icon:"◉",
             tip:"각 딜의 금액 × 성공 확률을 합산한 현실적 기대 매출입니다." },
-          { label:"수주 확정",      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green, icon:"◎",
+          { label:t("wonDeals"),      val:fmt(won.reduce((s,o)=>s+o.value,0)), sub:`${won.length}건 완료`, color:C.green, icon:"◎",
             tip:"수주확정 단계로 이동된 딜의 누적 금액입니다." },
-          { label:"진행 중 액션",   val:pending.length, sub:`${late.length}개 기한 초과`,          color:late.length?C.red:C.yellow, icon:"▦",
+          { label:t("pendingActions"),   val:pending.length, sub:`${late.length}개 기한 초과`,          color:late.length?C.red:C.yellow, icon:"▦",
             tip:`미완료 액션 ${pending.length}개 중 기한이 지난 액션이 ${late.length}개 있습니다.` },
         ].map(m=>(
           <div key={m.label} style={{
@@ -3269,8 +3428,8 @@ function MeetingForm({ meeting, onSave, onClose }) {
       <div style={{ gridColumn:"1/-1" }}><Inp label="다음 주 포커스" value={f.nextWeekFocus} onChange={s("nextWeekFocus")} multiline/></div>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={()=>onSave({...f,id:meeting?.id||uid(),attendees:f.attendees.split(",").map(x=>x.trim()).filter(Boolean),decisions:f.decisions.split("\n").map(x=>x.trim()).filter(Boolean)})}>저장</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+      <Btn onClick={()=>onSave({...f,id:meeting?.id||uid(),attendees:f.attendees.split(",").map(x=>x.trim()).filter(Boolean),decisions:f.decisions.split("\n").map(x=>x.trim()).filter(Boolean)})}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -3287,7 +3446,7 @@ function Meetings({ meetings, onUpdate }) {
             <div style={{ fontSize:12, color:C.textMuted, marginBottom:exp!==m.id?6:0 }}>참석: {m.attendees.join(", ")}</div>
             {exp!==m.id&&<div style={{ fontSize:13, color:C.textMuted, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis", maxWidth:600 }}>{m.agenda}</div>}
           </div>
-          <div style={{ display:"flex", gap:8 }}><Btn size="sm" variant="ghost" onClick={()=>sM(m)}>수정</Btn><Btn size="sm" variant="ghost" onClick={()=>sE(exp===m.id?null:m.id)}>{exp===m.id?"접기":"보기"}</Btn></div>
+          <div style={{ display:"flex", gap:8 }}><Btn size="sm" variant="ghost" onClick={()=>sM(m)}>{t("edit")}</Btn><Btn size="sm" variant="ghost" onClick={()=>sE(exp===m.id?null:m.id)}>{exp===m.id?"접기":"보기"}</Btn></div>
         </div>
         {exp===m.id&&<div style={{ marginTop:18, borderTop:`1px solid ${C.border}`, paddingTop:18 }}>
           {[["아젠다",m.agenda],["회의 내용",m.notes]].map(([l,v])=><div key={l} style={{ marginBottom:12 }}><SL>{l}</SL><div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{v}</div></div>)}
@@ -3419,7 +3578,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
     </>}
 
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:8 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
       <Btn onClick={handleApply} style={{ opacity: selTmpl&&selOpp ? 1 : .5 }}>적용 ({selTmpl?.actions.length||0}개 액션 생성)</Btn>
     </div>
   </Modal>;
@@ -3437,7 +3596,7 @@ function ActionForm({ action, clients, opps, onSave, onClose }) {
       <Sel label="우선순위" value={f.priority} onChange={s("priority")} options={["높음","중간","낮음"]}/>
     </div>
     <Inp label="진행 메모 (선택)" value={f.note||""} onChange={s("note")} multiline placeholder="진행 상황, 참고사항 등"/>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>취소</Btn><Btn onClick={()=>onSave({...f,id:action?.id||uid()})}>저장</Btn></div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn><Btn onClick={()=>onSave({...f,id:action?.id||uid()})}>{t("save")}</Btn></div>
   </Modal>;
 }
 
@@ -3548,7 +3707,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
       </div>
       <div style={{ display:"flex", gap:8 }}>
         <Btn variant="ghost" onClick={()=>sTM(true)}>📋 템플릿 적용</Btn>
-        <Btn onClick={()=>sM("add")}>+ 액션 추가</Btn>
+        <Btn onClick={()=>sM("add")}>{t("addAction")}</Btn>
       </div>
     </div>
 
@@ -3585,7 +3744,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
 
             {/* Actions */}
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-              <Btn size="sm" variant="ghost" onClick={()=>sM(a)}>수정</Btn>
+              <Btn size="sm" variant="ghost" onClick={()=>sM(a)}>{t("edit")}</Btn>
               <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) del(a.id); }}>삭제</Btn>
             </div>
           </div>
@@ -3817,7 +3976,7 @@ ${snap.lastMeetingFocus}
           <button onClick={()=>setWeekOffset(w=>w+1)} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:16, padding:"0 4px" }}>›</button>
         </div>
         <Btn onClick={generateReport} style={{ minWidth:140 }}>
-          {loading ? "생성 중..." : "리포트 생성"}
+          {loading ? "생성 중..." : t("generateReport")}
         </Btn>
       </div>
     </div>
@@ -3851,8 +4010,8 @@ ${snap.lastMeetingFocus}
       {(() => {
         const snap = buildSnapshot();
         return [
-          { label:"활성 파이프라인", val:snap.totalPipe,       sub:`${snap.activeCount}개 딜`,          color:C.accent  },
-          { label:"가중 예상 매출",  val:snap.weighted,        sub:"확률 반영",                         color:C.purple  },
+          { label:t("activePipeline"), val:snap.totalPipe,       sub:`${snap.activeCount}개 딜`,          color:C.accent  },
+          { label:t("weightedRevenue"),  val:snap.weighted,        sub:"확률 반영",                         color:C.purple  },
           { label:"진행중 액션",     val:snap.pendingActCount, sub:`${snap.lateActCount}개 기한초과`,    color:snap.lateActCount>0?C.red:C.yellow },
           { label:"이번 주 마감",    val:snap.weekActCount,    sub:"액션",                              color:C.cyan    },
         ].map(m=><Card key={m.label}>
@@ -3867,8 +4026,8 @@ ${snap.lastMeetingFocus}
     {(() => {
       // 금주/전주 탭용 상태는 WeeklyReport 컴포넌트 state 활용
       const summaryWeeks = [
-        { key:"this", label:"금주", range: getWeekRange(weekOffset) },
-        { key:"last", label:"전주", range: getWeekRange(weekOffset - 1) },
+        { key:"this", label:t("thisWeek"), range: getWeekRange(weekOffset) },
+        { key:"last", label:t("lastWeek"), range: getWeekRange(weekOffset - 1) },
       ];
 
       return summaryWeeks.map(({ key, label, range: sw }) => {
@@ -3925,7 +4084,7 @@ ${snap.lastMeetingFocus}
               <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                 {/* 금주/전주 뱃지 */}
                 <div style={{ display:"flex", gap:4, background:C.surfaceUp, borderRadius:8, padding:"3px 4px", border:`1px solid ${C.border}` }}>
-                  {[{k:"this",l:"금주"},{k:"last",l:"전주"}].map(t=>(
+                  {[{k:"this",l:t("thisWeek")},{k:"last",l:t("lastWeek")}].map(t=>(
                     <span key={t.k} style={{ padding:"3px 10px", borderRadius:6, fontSize:12, fontWeight:700, background:t.k===key?C.surface:"transparent", color:t.k===key?C.text:C.textMuted, boxShadow:t.k===key?"0 1px 3px rgba(0,0,0,.06)":"none" }}>
                       {t.l}
                     </span>
@@ -4110,7 +4269,7 @@ ${snap.lastMeetingFocus}
         <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>데이터 기반 영업 분석 및 전략 제언</div>
       </div>
       <Btn onClick={generateReport} style={{ minWidth:140 }}>
-        {loading ? "생성 중..." : report ? "재생성" : "리포트 생성"}
+        {loading ? "생성 중..." : report ? t("regenerate") : t("generateReport")}
       </Btn>
     </div>
 
@@ -4217,8 +4376,8 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
         <div style={{ fontSize:12, color:C.textMuted }}>※ 계약 체결 후 실제 매출이 인식되는 날짜 (closeDate와 다를 수 있습니다)</div>
       </div>
       <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-        <Btn variant="ghost" onClick={onClose}>취소</Btn>
-        <Btn onClick={() => onSave(d)}>저장</Btn>
+        <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+        <Btn onClick={() => onSave(d)}>{t("save")}</Btn>
       </div>
     </Modal>;
   };
@@ -4269,7 +4428,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
                   <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
                 </span>
                 <div style={{ fontSize:12, color:C.textMuted }}>{o.owner}</div>
-                <Btn size="sm" variant="ghost" onClick={() => onEditRevDate(o)}>수정</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => onEditRevDate(o)}>{t("edit")}</Btn>
               </div>
             );
           })}
@@ -4482,8 +4641,8 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
             ))}
           </div>
           <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-            <Btn variant="ghost" onClick={() => setEG(false)}>취소</Btn>
-            <Btn onClick={() => { onUpdateGoals(prev => ({...prev, [year]: goalForm})); setEG(false); }}>저장</Btn>
+            <Btn variant="ghost" onClick={() => setEG(false)}>{t("cancel")}</Btn>
+            <Btn onClick={() => { onUpdateGoals(prev => ({...prev, [year]: goalForm})); setEG(false); }}>{t("save")}</Btn>
           </div>
         </Modal>
       )}
@@ -4500,8 +4659,8 @@ function RevDateEditModal({ opp, onSave, onClose }) {
     <Inp label="매출 인식 예정일" type="date" value={d} onChange={setD}/>
     <div style={{ fontSize:12, color:C.textMuted, marginBottom:20 }}>※ 계약 체결 후 실제 매출이 인식되는 날짜입니다</div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
-      <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={() => onSave(d)}>저장</Btn>
+      <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
+      <Btn onClick={() => onSave(d)}>{t("save")}</Btn>
     </div>
   </Modal>;
 }
@@ -4748,8 +4907,8 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
   const todayCount = actions.filter(a=>!a.done&&a.dueDate===todayStr).length;
 
   const tabItems = [
-    { id:"actions",   label:"액션",    icon:"✓" },
-    { id:"pipeline",  label:"파이프라인", icon:"◉" },
+    { id:"actionsTab",label:t("actionsTab"),    icon:"✓" },
+    { id:"pipeline",  label:t("pipeline"), icon:"◉" },
     { id:"contacts",  label:"연락처",  icon:"👤" },
   ];
 
@@ -4961,11 +5120,11 @@ function useIsMobile() {
 }
 
 const TABS = [
-  { id:"dashboard", label:"대시보드",   icon:"◈" },
-  { id:"pipeline",  label:"파이프라인", icon:"◉" },
-  { id:"tracker",   label:"목표 트래킹", icon:"▦" },
-  { id:"clientdb",  label:"고객사 DB",  icon:"▣" },
-  { id:"actions",   label:"액션",       icon:"◎" },
+  { id:"dashboard", label:t("dashboard"),   icon:"◈" },
+  { id:"pipeline",  label:t("pipeline"), icon:"◉" },
+  { id:"tracker",   label:t("tracker"), icon:"▦" },
+  { id:"clientdb",  label:t("clientdb"), icon:"▣" },
+  { id:"actions",   label:t("actions"), icon:"◎" },
 ];
 
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
@@ -5657,7 +5816,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
         ) : !oppId ? (
           // Step 2 — 딜 선택
           <div>
-            <button onClick={()=>setMode(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>← 뒤로</button>
+            <button onClick={()=>setMode(null)} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>{t("back")}</button>
             <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:12 }}>
               {mode==="activity" ? "🤝 어느 딜에 활동을 기록할까요?" : "📋 어느 딜에 액션을 추가할까요?"}
             </div>
@@ -5684,7 +5843,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
         ) : (
           // Step 3 — 내용 입력
           <div>
-            <button onClick={()=>setOppId("")} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>← 뒤로</button>
+            <button onClick={()=>setOppId("")} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:13, marginBottom:12, padding:0, fontFamily:"inherit" }}>{t("back")}</button>
             {/* 선택된 딜 */}
             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.accentSoft, borderRadius:10, marginBottom:16 }}>
               <div style={{ width:30, height:30, borderRadius:7, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{selClient?.name?.[0]||"?"}</div>
@@ -5734,7 +5893,8 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
 function App() {
   const isMobile = useIsMobile();
   const { accounts } = useMsal();
-  useTheme(); // 테마 변경 시 App 전체 리렌더링 트리거
+  useTheme(); // 테마 변경 시 리렌더링
+  useLang();  // 언어 변경 시 리렌더링
 
   useEffect(() => {
     document.body.style.background = C.bg;
@@ -6009,6 +6169,7 @@ function App() {
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>저장됨
           </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
+          <LangToggle/>
           <ThemeToggle/>
           <span style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
           <UserMenu/>
