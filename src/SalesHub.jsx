@@ -935,8 +935,6 @@ function ActivityModal({ act, onSave, onClose }) {
   const [draggingOver, setDraggingOver] = useState(false);
   const s = k => v => sF(p=>({...p,[k]:v}));
 
-  const isMeeting = f.type === "방문미팅";
-
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) { setTF(file); setUR(null); setUE(""); }
@@ -977,9 +975,8 @@ function ActivityModal({ act, onSave, onClose }) {
       <Inp label="담당자" value={f.by} onChange={s("by")}/>
     </div>
 
-    {/* 방문미팅 전용 — 외부활동보고서 Teams 업로드 */}
-    {isMeeting && (
-      <div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"16px 18px" }}>
+    {/* 외부활동보고서 Teams 업로드 — 모든 활동 유형 */}
+    <div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"16px 18px" }}>
         <div style={{ fontSize:12, fontWeight:700, color:C.textMuted, letterSpacing:".06em", textTransform:"uppercase", marginBottom:10 }}>
           📎 외부활동보고서 — Teams 업로드
         </div>
@@ -1067,7 +1064,6 @@ function ActivityModal({ act, onSave, onClose }) {
           </div>
         )}
       </div>
-    )}
 
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:16 }}>
       <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
@@ -5119,12 +5115,13 @@ function useIsMobile() {
   return mobile;
 }
 
-const TABS = [
-  { id:"dashboard", label:t("dashboard"),   icon:"◈" },
-  { id:"pipeline",  label:t("pipeline"), icon:"◉" },
-  { id:"tracker",   label:t("tracker"), icon:"▦" },
-  { id:"clientdb",  label:t("clientdb"), icon:"▣" },
-  { id:"actions",   label:t("actions"), icon:"◎" },
+// TABS는 함수로 — 렌더 시점에 t()를 호출해야 언어 전환이 즉시 반영됨
+const getTabs = () => [
+  { id:"dashboard", label:t("dashboard"), icon:"◈" },
+  { id:"pipeline",  label:t("pipeline"),  icon:"◉" },
+  { id:"tracker",   label:t("tracker"),   icon:"▦" },
+  { id:"clientdb",  label:t("clientdb"),  icon:"▣" },
+  { id:"actions",   label:t("actions"),   icon:"◎" },
 ];
 
 // ─── LOGIN PAGE ───────────────────────────────────────────────────────────────
@@ -6145,7 +6142,7 @@ function App() {
             <div style={{ fontSize:9, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase", marginTop:-1 }}>Kangwon Energy</div>
           </div>
         </div>
-        {TABS.map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
+        {getTabs().map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
           <span style={{ fontSize:10 }}>{t.icon}</span>{t.label}
           {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{pending}</span>}
         </button>)}
