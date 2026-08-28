@@ -173,12 +173,12 @@ const TRANSLATIONS = {
     dashboard:"대시보드", pipeline:"파이프라인", tracker:"목표 트래킹",
     clientdb:"고객사 DB", actions:"액션",
     // 대시보드
-    activePipeline:t("activePipeline"), weightedRevenue:t("weightedRevenue"),
-    wonDeals:t("wonDeals"), pendingActions:t("pendingActions"),
+    activePipeline:"활성 파이프라인", weightedRevenue:"가중 예상 매출",
+    wonDeals:"수주 확정", pendingActions:"진행 중 액션",
     inProgress:"진행 중 딜", probabilityReflected:"확률 반영",
     dealsCompleted:"건 완료", overdueCount:"개 기한 초과",
     // 파이프라인
-    addOpp:t("addOpp"), kanban:"칸반", list:"리스트",
+    addOpp:"+ 영업기회 추가", kanban:"칸반", list:"리스트",
     stageFilter:"단계", ownerFilter:"담당자", allStages:"전체 사업부",
     active:"활성", won:"수주확정", lost:"손실", all:"전체",
     noDeals:"비어 있음",
@@ -187,7 +187,7 @@ const TRANSLATIONS = {
     activities:"활동 기록", files:"파일", actionsTab:"액션", news:"📰 뉴스",
     changeStage:"단계 변경 →", archive:"📦 아카이브", permDelete:"🗑 영구삭제",
     addActivity:"+ 활동 기록", addFile:"+ 파일", addAction:"+ 액션 추가",
-    editOpp:t("editOpp"), save:"저장", cancel:"취소",
+    editOpp:"✏ 수정", save:"저장", cancel:"취소",
     expectedRevenue:"예상 수주 금액", weightedSales:"가중 매출",
     successRate:"성공 확률", expectedClose:"예상 계약일",
     businessUnit:"사업부", owner:"담당자",
@@ -210,18 +210,18 @@ const TRANSLATIONS = {
     addActionBtn:"+ 액션 추가", priority:"우선순위", dueDate:"마감일",
     high:"높음", medium:"중간", low:"낮음", done:"완료",
     // 공통
-    saving:t("saving"), saved:t("saved"), loading:"로딩 중...",
+    saving:"저장 중...", saved:"저장됨", loading:"로딩 중...",
     noData:"데이터가 없습니다", edit:"수정", delete:"삭제",
-    confirm:"확인", back:t("back"),
+    confirm:"확인", back:"← 뒤로",
     // 알림
-    notifCenter:t("notifCenter"), unread:"미확인", markAllRead:t("markAllRead"),
+    notifCenter:"🔔 알림 센터", unread:"미확인", markAllRead:"✓ 모두 확인",
     overdue:"긴급", warning:"주의", info:"확인",
     noActivity:"일째 활동 없음", noActionSet:"다음 액션 없음",
     overdueAction:"기한 초과",
     // 주간 리포트
-    weeklyReport:t("weeklyReport"), thisWeek:t("thisWeek"), lastWeek:t("lastWeek"),
-    pipelineUpdate:t("pipelineUpdate"), clientUpdate:t("clientUpdate"),
-    generateReport:t("generateReport"), regenerate:t("regenerate"),
+    weeklyReport:"주간 영업 리포트", thisWeek:"금주", lastWeek:"전주",
+    pipelineUpdate:"📦 파이프라인 업데이트", clientUpdate:"🏢 고객사 DB 업데이트",
+    generateReport:"리포트 생성", regenerate:"재생성",
   },
   en: {
     // Tabs
