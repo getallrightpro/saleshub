@@ -1463,7 +1463,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const [fileModal, setFM]    = useState(false);
   const [stageModal, setSM]   = useState(false);
   const [editing, setEdit]    = useState(false);
-  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"", oppType:opp.oppType||"일반수주", stakeholders:opp.stakeholders||[] });
+  const [editForm, setEF] = useState({ strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"", oppType:opp.oppType||"일반수주" });
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal,     setTitleVal]     = useState(opp.name);
   const [editingStage, setES]           = useState(null);
@@ -1631,11 +1631,10 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       })()}
 
       {/* Next step banner */}
-      {opp.nextStep&&<div style={{ marginTop:14, background:`${stageCfg.color}12`, border:`1px solid ${stageCfg.color}30`, borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", gap:12 }}>
-        <span style={{ fontSize:11, color:stageCfg.color, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", flexShrink:0 }}>다음 액션</span>
-        <span style={{ fontSize:13, color:C.text, flex:1 }}>{opp.nextStep}</span>
-        <span style={{ fontSize:12, color:isLate(opp.nextStepDate)?C.red:C.textMuted, fontWeight:isLate(opp.nextStepDate)?700:400 }}>
-          {isLate(opp.nextStepDate)?"⚠ ":""}{opp.nextStepDate}
+      {false&&<div style={{ display:"none" }}>
+        <span></span>
+        <span></span>
+        <span>
         </span>
       </div>}
     </div>
@@ -1704,13 +1703,11 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           </div>
         )}
 
-        <Inp label="다음 액션" value={editForm.nextStep} onChange={v=>setEF(p=>({...p,nextStep:v}))}/>
-        <Inp label="다음 액션 일정" type="date" value={editForm.nextStepDate} onChange={v=>setEF(p=>({...p,nextStepDate:v}))}/>
+
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
         <Inp label="영업 전략 메모" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
         <Inp label="고객 요구사항 / Spec" value={editForm.clientRequirements||""} onChange={v=>setEF(p=>({...p,clientRequirements:v}))} multiline placeholder="고객사의 기술 스펙, 납기 조건, 예산, 기타 요구사항을 상세히 기록하세요"/>
         <Inp label="경쟁사" value={editForm.competitors||""} onChange={v=>setEF(p=>({...p,competitors:v}))} placeholder="A사, B사"/>
-        <StakeholderEditor stakeholders={editForm.stakeholders} onChange={v=>setEF(p=>({...p,stakeholders:v}))}/>
         <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>{t("cancel")}</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>{t("save")}</Btn></div>
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
@@ -1740,75 +1737,14 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           </div>
         )}
 
-        {/* 의사결정 구조 */}
+        {/* 의사결정 구조 — 개요에서 바로 편집 */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>🏛 의사결정 구조</div>
-            <button onClick={()=>setEdit(true)} style={{ fontSize:11, color:C.accent, background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>수정</button>
-          </div>
-          {(opp.stakeholders||[]).length === 0 ? (
-            <div style={{ textAlign:"center", padding:"14px", background:C.surfaceUp, border:`1.5px dashed ${C.border}`, borderRadius:8, fontSize:12, color:C.textDim }}>
-              의사결정 관계자를 추가하세요
-            </div>
-          ) : (
-            <div style={{ display:"grid", gap:6 }}>
-              {(opp.stakeholders||[]).map(s => {
-                const aff = STAKEHOLDER_AFFINITY.find(a=>a.id===s.affinity) || STAKEHOLDER_AFFINITY[3];
-                return (
-                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
-                    <span style={{ fontSize:16, flexShrink:0 }}>{aff.icon}</span>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{s.name}</div>
-                      <div style={{ fontSize:11, color:C.textMuted }}>{s.title}</div>
-                    </div>
-                    <span style={{ fontSize:10, background:`${aff.color}12`, color:aff.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>{s.role}</span>
-                    <span style={{ fontSize:11, color:aff.color, fontWeight:600, flexShrink:0 }}>{aff.id}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>🏛 의사결정 구조</div>
+          <StakeholderEditor
+            stakeholders={opp.stakeholders||[]}
+            onChange={v=>update({ stakeholders:v })}
+          />
         </div>
-
-        {/* 레거시 다음 액션 데이터 — 마이그레이션 배너 */}
-        {opp.nextStep && (
-          <div style={{ background:C.yellowSoft, border:`1px solid ${C.yellow}40`, borderRadius:10, padding:"14px 16px", marginBottom:12 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:11, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>
-                  ⚠ 이전 방식의 다음 액션 데이터
-                </div>
-                <div style={{ fontSize:13, color:C.text, marginBottom:2 }}>{opp.nextStep}</div>
-                {opp.nextStepDate && <div style={{ fontSize:11, color:C.textMuted }}>일정: {opp.nextStepDate}</div>}
-                <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>
-                  액션 탭으로 이전하거나 삭제하세요
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-                {/* 액션으로 전환 */}
-                <button onClick={()=>{
-                  const newAction = {
-                    id: uid(), oppId: opp.id,
-                    clientId: opp.accountId||"",
-                    title: opp.nextStep,
-                    dueDate: opp.nextStepDate||"",
-                    owner: opp.owner||"",
-                    priority: "중간", done: false, note:"",
-                  };
-                  onUpdateActions(prev=>[...prev, newAction]);
-                  update({ nextStep:"", nextStepDate:"" });
-                }} style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${C.accent}`, background:C.accentSoft, color:C.accent, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
-                  📋 액션으로 이전
-                </button>
-                {/* 그냥 삭제 */}
-                <button onClick={()=>{ if(window.confirm("이전 다음 액션 데이터를 삭제할까요?")) update({ nextStep:"", nextStepDate:"" }); }}
-                  style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
-                  삭제
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 고객 요구사항 / Spec */}
         <div style={{ background:`${C.yellow}0D`, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
@@ -1828,7 +1764,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
-        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||"",oppType:opp.oppType||"일반수주",stakeholders:opp.stakeholders||[]});setEdit(true);}}>✏ 수정</Btn>
+        <Btn variant="ghost" size="sm" onClick={()=>{setEF({strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||"",oppType:opp.oppType||"일반수주",stakeholders:opp.stakeholders||[]});setEdit(true);}}>✏ 수정</Btn>
       </div>}
     </div>}
 
@@ -2197,10 +2133,7 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                     <div style={{ width:`${o.probability}%`, height:"100%", background:stage.color, borderRadius:2 }}/>
                   </div>
                   {/* Next step */}
-                  {o.nextStep && <div style={{ fontSize:11, color:late?C.red:C.textMuted, display:"flex", gap:4, borderTop:`1px solid ${C.border}`, paddingTop:7 }}>
-                    <span style={{ flexShrink:0 }}>{late?"⚠":"→"}</span>
-                    <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.nextStep}</span>
-                  </div>}
+
                   <div style={{ fontSize:10, color:C.textDim, marginTop:5, display:"flex", justifyContent:"space-between" }}>
                     <span>{o.closeDate}</span>
                     <span>{o.owner}</span>
@@ -2263,7 +2196,7 @@ function OppListView({ opps, clients, onSelect }) {
         <ProbBar value={o.probability} stage={o.stage}/>
         <div>
           <div style={{ fontSize:12, color:late&&o.stage!=="수주확정"?C.red:C.textMuted, fontWeight:late&&o.stage!=="수주확정"?700:400 }}>
-            {late&&o.stage!=="수주확정"?"⚠ ":""}{o.nextStep||"—"}
+—
           </div>
           <div style={{ fontSize:11, color:C.textDim }}>{o.nextStepDate}</div>
         </div>
