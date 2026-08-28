@@ -638,9 +638,117 @@ function ClientSearchInput({ clients, value, onChange }) {
   );
 }
 
+// ─── 의사결정 구조 상수 ────────────────────────────────────────────────────────
+const STAKEHOLDER_ROLES     = ["결정권자","예산권자","실무담당","기술검토","챔피언","영향력자"];
+const STAKEHOLDER_AFFINITY  = [
+  { id:"우호적",  icon:"🟢", color:"#16A34A" },
+  { id:"중립",    icon:"⚪", color:"#6B7280" },
+  { id:"부정적",  icon:"🔴", color:"#DC2626" },
+  { id:"미파악",  icon:"❓", color:"#D97706" },
+];
+
+function StakeholderEditor({ stakeholders=[], onChange }) {
+  const [adding, setAdding] = useState(false);
+  const [form,   setForm]   = useState({ name:"", title:"", role:"실무담당", affinity:"미파악" });
+
+  const add = () => {
+    if (!form.name.trim()) return;
+    onChange([...stakeholders, { ...form, id:uid() }]);
+    setForm({ name:"", title:"", role:"실무담당", affinity:"미파악" });
+    setAdding(false);
+  };
+  const remove = (id) => onChange(stakeholders.filter(s=>s.id!==id));
+  const update  = (id, key, val) => onChange(stakeholders.map(s=>s.id===id?{...s,[key]:val}:s));
+
+  return (
+    <div style={{ marginBottom:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+        <label style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>의사결정 구조</label>
+        {!adding && <button onClick={()=>setAdding(true)} style={{ fontSize:11, color:C.accent, background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>+ 추가</button>}
+      </div>
+
+      {/* 기존 담당자 목록 */}
+      {stakeholders.length > 0 && (
+        <div style={{ display:"grid", gap:6, marginBottom:adding?10:0 }}>
+          {stakeholders.map(s => {
+            const aff = STAKEHOLDER_AFFINITY.find(a=>a.id===s.affinity) || STAKEHOLDER_AFFINITY[3];
+            return (
+              <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8 }}>
+                {/* 우호도 */}
+                <span style={{ fontSize:14, flexShrink:0 }}>{aff.icon}</span>
+                {/* 이름/직책 */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{s.name}</div>
+                  <div style={{ fontSize:11, color:C.textMuted }}>{s.title}</div>
+                </div>
+                {/* 역할 뱃지 */}
+                <span style={{ fontSize:10, background:`${aff.color}12`, color:aff.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>{s.role}</span>
+                {/* 우호도 변경 */}
+                <select value={s.affinity} onChange={e=>update(s.id,"affinity",e.target.value)}
+                  style={{ fontSize:11, background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 6px", color:C.text, outline:"none", cursor:"pointer" }}>
+                  {STAKEHOLDER_AFFINITY.map(a=><option key={a.id} value={a.id}>{a.icon} {a.id}</option>)}
+                </select>
+                <button onClick={()=>remove(s.id)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {stakeholders.length === 0 && !adding && (
+        <div style={{ textAlign:"center", padding:"14px", background:C.surfaceUp, border:`1.5px dashed ${C.border}`, borderRadius:8, fontSize:12, color:C.textDim }}>
+          의사결정 관계자를 추가하세요
+        </div>
+      )}
+
+      {/* 새 담당자 입력 폼 */}
+      {adding && (
+        <div style={{ padding:"12px 14px", background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" }}>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>이름</label>
+              <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="홍길동"
+                autoFocus style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>직책</label>
+              <input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="구매팀장"
+                style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box" }}/>
+            </div>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>역할</label>
+              <select value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))}
+                style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }}>
+                {STAKEHOLDER_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>우호도</label>
+              <select value={form.affinity} onChange={e=>setForm(p=>({...p,affinity:e.target.value}))}
+                style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }}>
+                {STAKEHOLDER_AFFINITY.map(a=><option key={a.id} value={a.id}>{a.icon} {a.id}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+            <button onClick={()=>setAdding(false)} style={{ padding:"7px 14px", borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>취소</button>
+            <button onClick={add} style={{ padding:"7px 14px", borderRadius:7, border:"none", background:C.accent, color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>추가</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OppFormModal({ opp, clients, onSave, onClose }) {
-  const blank = { name:"", accountId:clients[0]?.id||"", owner:"", businessUnit:BUSINESS_UNITS[0].id, oppType:"일반수주", stage:"리드", value:"", probability:10, closeDate:"", nextStep:"", nextStepDate:"", competitors:"", source:"영업팀 발굴", strategyNote:"" };
-  const [f,sF]       = useState(opp ? { ...opp, value:String(opp.value) } : blank);
+  const blank = {
+    name:"", accountId:clients[0]?.id||"", owner:"",
+    businessUnit:BUSINESS_UNITS[0].id, oppType:"일반수주",
+    stage:"리드", value:"", probability:10, closeDate:"",
+    competitors:"", source:"영업팀 발굴", strategyNote:"",
+    stakeholders:[], revenueDate:"",
+  };
+  const [f,sF]       = useState(opp ? { ...opp, value:String(opp.value), stakeholders:opp.stakeholders||[] } : blank);
   const [users, setUsers] = useState([]);
   const s=k=>v=>sF(p=>({...p,[k]:v}));
   const handleStageChange = (stage) => { sF(p=>({...p, stage, probability:STAGE_MAP[stage]?.prob||p.probability})); };
@@ -657,14 +765,19 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
 
   return <Modal title={opp?"영업기회 수정":"영업기회 추가"} onClose={onClose}>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="영업기회명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자 2025 소재 공급"/></div>
-      {/* 고객사 검색 */}
+      {/* 영업기회명 */}
+      <div style={{ gridColumn:"1/-1" }}>
+        <Inp label="영업기회명" value={f.name} onChange={s("name")} placeholder="예: 삼성전자 2025 소재 공급"/>
+      </div>
+
+      {/* 고객사 */}
       <div style={{ gridColumn:"1/-1" }}>
         <ClientSearchInput clients={clients} value={f.accountId} onChange={v=>sF(p=>({...p,accountId:v}))}/>
       </div>
-      {/* 담당자 — 승인된 사용자 드롭다운 */}
+
+      {/* 담당자 */}
       <div style={{ marginBottom:16 }}>
-        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자</label>
+        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자 (강원에너지)</label>
         {users.length > 0 ? (
           <select value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
             <option value="">— 선택 —</option>
@@ -674,46 +787,59 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
             })}
           </select>
         ) : (
-          <input value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} placeholder="담당자 이름" style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
+          <input value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} placeholder="담당자 이름"
+            style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box" }}/>
         )}
       </div>
+
       <Sel label="사업부" value={f.businessUnit||BUSINESS_UNITS[0].id} onChange={s("businessUnit")} options={BUSINESS_UNITS.map(b=>({value:b.id,label:b.id}))}/>
+
       {/* 영업기회 유형 */}
       <div style={{ gridColumn:"1/-1", marginBottom:16 }}>
         <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회 유형</label>
         <div style={{ display:"flex", gap:8 }}>
-          {OPP_TYPES.map(t=>(
-            <button key={t.id} type="button" onClick={()=>sF(p=>({...p,oppType:t.id}))}
-              style={{ flex:1, padding:"10px 12px", borderRadius:8, border:`1.5px solid ${f.oppType===t.id?t.color:C.border}`, background:f.oppType===t.id?`${t.color}10`:"transparent", color:f.oppType===t.id?t.color:C.textMuted, fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-              <span>{t.icon}</span>{t.label}
+          {OPP_TYPES.map(tp=>(
+            <button key={tp.id} type="button" onClick={()=>sF(p=>({...p,oppType:tp.id}))}
+              style={{ flex:1, padding:"10px 12px", borderRadius:8, border:`1.5px solid ${f.oppType===tp.id?tp.color:C.border}`, background:f.oppType===tp.id?`${tp.color}10`:"transparent", color:f.oppType===tp.id?tp.color:C.textMuted, fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+              <span>{tp.icon}</span>{tp.label}
             </button>
           ))}
         </div>
       </div>
+
       <Sel label="영업 단계" value={f.stage} onChange={handleStageChange} options={STAGES.map(s=>s.id)}/>
       <Inp label="확률 (%)" type="number" value={f.probability} onChange={v=>sF(p=>({...p,probability:Number(v)||0}))}/>
       <Inp label="예상 금액 (원)" type="number" value={f.value} onChange={v=>sF(p=>({...p,value:v.replace(/[^0-9]/g,"")}))} placeholder="숫자만 입력 (예: 100000000)"/>
       <Inp label="예상 계약일" type="date" value={f.closeDate} onChange={s("closeDate")}/>
-      <Inp label="경쟁사" value={f.competitors} onChange={s("competitors")} placeholder="A사, B사"/>
+      <Inp label="경쟁사" value={f.competitors||""} onChange={s("competitors")} placeholder="A사, B사"/>
       <Sel label="영업 소스" value={f.source} onChange={s("source")} options={["영업팀 발굴","인바운드 문의","기존 거래","레퍼런스 소개","전시회 접촉","파트너사 소개"]}/>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="다음 액션" value={f.nextStep} onChange={s("nextStep")}/></div>
-      <Inp label="다음 액션 일정" type="date" value={f.nextStepDate} onChange={s("nextStepDate")}/>
-      <Inp label="매출 인식 예정일" type="date" value={f.revenueDate||""} onChange={s("revenueDate")} />
-      <div style={{ gridColumn:"1/-1" }}><Inp label="영업 전략 메모" value={f.strategyNote} onChange={s("strategyNote")} multiline placeholder="이 딜의 핵심 전략, 유의사항 등"/></div>
+      <Inp label="매출 인식 예정일" type="date" value={f.revenueDate||""} onChange={s("revenueDate")}/>
+
+      {/* 의사결정 구조 */}
+      <div style={{ gridColumn:"1/-1" }}>
+        <StakeholderEditor stakeholders={f.stakeholders} onChange={v=>sF(p=>({...p,stakeholders:v}))}/>
+      </div>
+
+      {/* 영업 전략 메모 */}
+      <div style={{ gridColumn:"1/-1" }}>
+        <Inp label="영업 전략 메모" value={f.strategyNote||""} onChange={s("strategyNote")} multiline placeholder="이 딜의 핵심 전략, 유의사항 등"/>
+      </div>
     </div>
+
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>{t("cancel")}</Btn>
       <Btn onClick={()=>{
         const numVal = parseInt(String(f.value).replace(/[^0-9]/g,""), 10) || 0;
         onSave({
           ...f,
-          value: numVal,
-          probability: Number(f.probability)||0,
-          id: opp?.id||uid(),
+          value:        numVal,
+          probability:  Number(f.probability)||0,
+          id:           opp?.id||uid(),
           stageHistory: opp?.stageHistory||[],
           activities:   opp?.activities||[],
           files:        opp?.files||[],
           stageStrategies: opp?.stageStrategies||{},
+          stakeholders: f.stakeholders||[],
         });
       }}>{t("save")}</Btn>
     </div>
@@ -1337,7 +1463,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
   const [fileModal, setFM]    = useState(false);
   const [stageModal, setSM]   = useState(false);
   const [editing, setEdit]    = useState(false);
-  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"", oppType:opp.oppType||"일반수주" });
+  const [editForm, setEF] = useState({ nextStep:opp.nextStep, nextStepDate:opp.nextStepDate, strategyNote:opp.strategyNote, competitors:opp.competitors, clientRequirements:opp.clientRequirements||"", businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id, owner:opp.owner||"", oppType:opp.oppType||"일반수주", stakeholders:opp.stakeholders||[] });
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal,     setTitleVal]     = useState(opp.name);
   const [editingStage, setES]           = useState(null);
@@ -1583,6 +1709,8 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
         <Inp label="영업 전략 메모" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
         <Inp label="고객 요구사항 / Spec" value={editForm.clientRequirements||""} onChange={v=>setEF(p=>({...p,clientRequirements:v}))} multiline placeholder="고객사의 기술 스펙, 납기 조건, 예산, 기타 요구사항을 상세히 기록하세요"/>
+        <Inp label="경쟁사" value={editForm.competitors||""} onChange={v=>setEF(p=>({...p,competitors:v}))} placeholder="A사, B사"/>
+        <StakeholderEditor stakeholders={editForm.stakeholders} onChange={v=>setEF(p=>({...p,stakeholders:v}))}/>
         <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>{t("cancel")}</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>{t("save")}</Btn></div>
       </div>:<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
@@ -1604,6 +1732,84 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           })}
         </div>
 
+        {/* 경쟁사 */}
+        {opp.competitors && (
+          <div style={{ background:C.redSoft, border:`1px solid ${C.red}20`, borderRadius:10, padding:"12px 16px", marginBottom:12 }}>
+            <div style={{ fontSize:10, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>⚔ 경쟁사</div>
+            <div style={{ fontSize:13, color:C.text }}>{opp.competitors}</div>
+          </div>
+        )}
+
+        {/* 의사결정 구조 */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>🏛 의사결정 구조</div>
+            <button onClick={()=>setEdit(true)} style={{ fontSize:11, color:C.accent, background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>수정</button>
+          </div>
+          {(opp.stakeholders||[]).length === 0 ? (
+            <div style={{ textAlign:"center", padding:"14px", background:C.surfaceUp, border:`1.5px dashed ${C.border}`, borderRadius:8, fontSize:12, color:C.textDim }}>
+              의사결정 관계자를 추가하세요
+            </div>
+          ) : (
+            <div style={{ display:"grid", gap:6 }}>
+              {(opp.stakeholders||[]).map(s => {
+                const aff = STAKEHOLDER_AFFINITY.find(a=>a.id===s.affinity) || STAKEHOLDER_AFFINITY[3];
+                return (
+                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8 }}>
+                    <span style={{ fontSize:16, flexShrink:0 }}>{aff.icon}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{s.name}</div>
+                      <div style={{ fontSize:11, color:C.textMuted }}>{s.title}</div>
+                    </div>
+                    <span style={{ fontSize:10, background:`${aff.color}12`, color:aff.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>{s.role}</span>
+                    <span style={{ fontSize:11, color:aff.color, fontWeight:600, flexShrink:0 }}>{aff.id}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 레거시 다음 액션 데이터 — 마이그레이션 배너 */}
+        {opp.nextStep && (
+          <div style={{ background:C.yellowSoft, border:`1px solid ${C.yellow}40`, borderRadius:10, padding:"14px 16px", marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>
+                  ⚠ 이전 방식의 다음 액션 데이터
+                </div>
+                <div style={{ fontSize:13, color:C.text, marginBottom:2 }}>{opp.nextStep}</div>
+                {opp.nextStepDate && <div style={{ fontSize:11, color:C.textMuted }}>일정: {opp.nextStepDate}</div>}
+                <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>
+                  액션 탭으로 이전하거나 삭제하세요
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+                {/* 액션으로 전환 */}
+                <button onClick={()=>{
+                  const newAction = {
+                    id: uid(), oppId: opp.id,
+                    clientId: opp.accountId||"",
+                    title: opp.nextStep,
+                    dueDate: opp.nextStepDate||"",
+                    owner: opp.owner||"",
+                    priority: "중간", done: false, note:"",
+                  };
+                  onUpdateActions(prev=>[...prev, newAction]);
+                  update({ nextStep:"", nextStepDate:"" });
+                }} style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${C.accent}`, background:C.accentSoft, color:C.accent, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+                  📋 액션으로 이전
+                </button>
+                {/* 그냥 삭제 */}
+                <button onClick={()=>{ if(window.confirm("이전 다음 액션 데이터를 삭제할까요?")) update({ nextStep:"", nextStepDate:"" }); }}
+                  style={{ padding:"7px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  삭제
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 고객 요구사항 / Spec */}
         <div style={{ background:`${C.yellow}0D`, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
@@ -1622,7 +1828,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
-        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||"",oppType:opp.oppType||"일반수주"});setEdit(true);}}>✏ 수정</Btn>
+        <Btn variant="ghost" size="sm" onClick={()=>{setEF({nextStep:opp.nextStep,nextStepDate:opp.nextStepDate,strategyNote:opp.strategyNote,competitors:opp.competitors,clientRequirements:opp.clientRequirements||"",businessUnit:opp.businessUnit||BUSINESS_UNITS[0].id,owner:opp.owner||"",oppType:opp.oppType||"일반수주",stakeholders:opp.stakeholders||[]});setEdit(true);}}>✏ 수정</Btn>
       </div>}
     </div>}
 
