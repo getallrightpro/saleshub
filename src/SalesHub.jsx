@@ -5930,7 +5930,7 @@ function App() {
     window.addEventListener("popstate", handlePop);
     // 초기 진입 시 현재 URL hash에서 탭 복원
     const hash = window.location.hash.replace("#", "");
-    const validTab = TABS.find(t => t.id === hash);
+    const validTab = getTabs().find(t => t.id === hash);
     if (validTab) sT(validTab.id);
     else window.history.replaceState({ tab: "dashboard" }, "", "#dashboard");
     return () => window.removeEventListener("popstate", handlePop);
