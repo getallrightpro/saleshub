@@ -1441,7 +1441,6 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         </div>
         <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
           {opp.stage!=="수주확정"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
-          <Btn size="sm" onClick={()=>setAM("addAction")}>+ 액션 추가</Btn>
           {opp.stage==="수주확정"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 수주확정</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
           {onArchive && <Btn variant="ghost" size="sm" style={{ color:C.textMuted }} onClick={()=>{ if(window.confirm(`"${opp.name}"을 아카이브 하시겠습니까?\n아카이브된 딜은 파이프라인 > 아카이브 탭에서 확인할 수 있습니다.`)) { onArchive(opp); onBack(); } }}>📦 아카이브</Btn>}
@@ -1813,31 +1812,56 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
     {/* ── 액션 ── */}
     {subTab==="actions"&&<div>
-      <div style={{ marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <span style={{ fontSize:13, color:C.textMuted }}>{oppActions.filter(a=>!a.done).length}개 진행 · {oppActions.filter(a=>a.done).length}개 완료</span>
-        <Btn onClick={()=>setAM("addAction")}>{"+ 액션 추가"}</Btn>
+      {/* 헤더 */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text }}>액션 관리</div>
+          <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>
+            진행 중 {oppActions.filter(a=>!a.done).length}건 · 완료 {oppActions.filter(a=>a.done).length}건
+          </div>
+        </div>
+        <Btn onClick={()=>setAM("addAction")}>+ 액션 추가</Btn>
       </div>
-      {oppActions.length===0&&<div style={{ textAlign:"center", padding:"48px 0", color:C.textMuted }}>
-        <div style={{ fontSize:32, marginBottom:12 }}>✓</div>
-        <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:6 }}>등록된 액션이 없습니다</div>
-        <div style={{ fontSize:12, color:C.textMuted, marginBottom:16 }}>이 영업기회에 필요한 액션을 추가해보세요</div>
-        <Btn size="sm" onClick={()=>setAM("addAction")}>+ 첫 액션 추가</Btn>
-      </div>}
-      {oppActions.sort((a,b)=>a.done===b.done?0:a.done?1:-1).map(a=>{
-        const ov=!a.done&&isLate(a.dueDate);
-        return <div key={a.id} style={{ display:"flex", alignItems:"center", gap:14, background:C.surface, border:`1px solid ${ov?C.red+"40":C.border}`, borderRadius:10, padding:"13px 18px", marginBottom:8, opacity:a.done?.6:1 }}>
-          <button onClick={()=>onUpdateActions(prev=>prev.map(x=>x.id===a.id?{...x,done:!x.done}:x))} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{a.done?"✓":""}</button>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none" }}>{a.title}</div>
-            <div style={{ fontSize:11, color:C.textMuted }}>{a.owner} {a.dueDate && <span style={{ color:ov?C.red:C.textDim }}>· {ov?"⚠ ":""}{a.dueDate}</span>}</div>
-          </div>
-          <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700 }}>{a.priority}</span>
-          <div style={{ display:"flex", gap:6 }}>
-            <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>{"수정"}</Btn>
-            <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) onUpdateActions(prev=>prev.filter(x=>x.id!==a.id)); }}>삭제</Btn>
-          </div>
-        </div>;
-      })}
+
+      {/* 빈 상태 */}
+      {oppActions.length===0 && (
+        <div style={{ textAlign:"center", padding:"48px 0" }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>📋</div>
+          <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>등록된 액션이 없습니다</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginBottom:20 }}>이 영업기회에 필요한 할 일을 추가해보세요</div>
+          <Btn onClick={()=>setAM("addAction")}>+ 첫 액션 추가</Btn>
+        </div>
+      )}
+
+      {/* 액션 목록 */}
+      <div style={{ display:"grid", gap:8 }}>
+        {oppActions.sort((a,b)=>a.done===b.done?0:a.done?1:-1).map(a=>{
+          const ov=!a.done&&isLate(a.dueDate);
+          return <div key={a.id} style={{ display:"flex", alignItems:"center", gap:14, background:C.surface, border:`1px solid ${ov?C.red+"40":a.done?C.border:C.border}`, borderRadius:10, padding:"13px 18px", opacity:a.done?.6:1, transition:"opacity .2s" }}>
+            {/* 완료 체크박스 */}
+            <button onClick={()=>onUpdateActions(prev=>prev.map(x=>x.id===a.id?{...x,done:!x.done}:x))}
+              style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11, transition:"all .15s" }}>
+              {a.done?"✓":""}
+            </button>
+            {/* 내용 */}
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none" }}>{a.title}</div>
+              <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
+                {a.owner && <span>👤 {a.owner}</span>}
+                {a.dueDate && <span style={{ color:ov?C.red:C.textDim }}>📅 {ov?"⚠ ":""}{a.dueDate}</span>}
+                {a.note && <span style={{ color:C.textDim }}>· {a.note.slice(0,30)}{a.note.length>30?"…":""}</span>}
+              </div>
+            </div>
+            {/* 우선순위 */}
+            <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700, flexShrink:0 }}>{a.priority}</span>
+            {/* 버튼 */}
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>수정</Btn>
+              <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`액션 "${a.title}"을 삭제하시겠습니까?`)) onUpdateActions(prev=>prev.filter(x=>x.id!==a.id)); }}>삭제</Btn>
+            </div>
+          </div>;
+        })}
+      </div>
     </div>}
 
     {subTab==="news" && (
