@@ -1441,6 +1441,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         </div>
         <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
           {opp.stage!=="수주확정"&&opp.stage!=="손실"&&<Btn variant="ghost" size="sm" onClick={()=>setSM(true)}>단계 변경 →</Btn>}
+          <Btn size="sm" onClick={()=>setAM("addAction")}>+ 액션 추가</Btn>
           {opp.stage==="수주확정"&&<span style={{ fontSize:13, color:C.green, fontWeight:700 }}>🎉 수주확정</span>}
           {opp.stage==="손실"&&<span style={{ fontSize:13, color:C.red, fontWeight:700 }}>📌 손실</span>}
           {onArchive && <Btn variant="ghost" size="sm" style={{ color:C.textMuted }} onClick={()=>{ if(window.confirm(`"${opp.name}"을 아카이브 하시겠습니까?\n아카이브된 딜은 파이프라인 > 아카이브 탭에서 확인할 수 있습니다.`)) { onArchive(opp); onBack(); } }}>📦 아카이브</Btn>}
@@ -1849,12 +1850,13 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     {actModal&&actModal!=="addAction"&&!actModal._editAction&&<ActivityModal act={actModal==="new"?null:actModal} onSave={saveAct} onClose={()=>setAM(null)}/>}
     {(actModal==="addAction"||actModal?._editAction)&&<ActionForm
       action={actModal._editAction ? actModal : null}
+      defaultOppId={opp.id}
       clients={clients}
       opps={[opp]}
       onClose={()=>setAM(null)}
       onSave={data=>{
         onUpdateActions(prev => actModal._editAction
-          ? prev.map(a=>a.id===data.id?data:a)
+          ? prev.map(a=>a.id===data.id?{...data, oppId:opp.id, clientId:opp.accountId}:a)
           : [...prev, {...data, oppId:opp.id, clientId:opp.accountId}]
         );
         setAM(null);
@@ -3567,19 +3569,24 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
   </Modal>;
 }
 
-function ActionForm({ action, clients, opps, onSave, onClose }) {
-  const [f,sF]=useState(action||{title:"",oppId:opps[0]?.id||"",clientId:clients[0]?.id||"",owner:"",dueDate:"",priority:"중간",done:false,note:""});
+function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
+  const [f,sF]=useState(action||{
+    title:"", oppId:defaultOppId||action?.oppId||opps[0]?.id||"",
+    clientId:clients[0]?.id||"", owner:"", dueDate:"", priority:"중간", done:false, note:""
+  });
   const s=k=>v=>sF(p=>({...p,[k]:v}));
   return <Modal title={action?"액션 수정":"액션 추가"} onClose={onClose}>
-    <Inp label="액션 내용" value={f.title} onChange={s("title")}/>
-    <Sel label="영업기회" value={f.oppId} onChange={v=>sF(p=>({...p,oppId:v,clientId:opps.find(o=>o.id===v)?.accountId||p.clientId}))} options={[{value:"",label:"— 선택 —"},...opps.map(o=>({value:o.id,label:o.name}))]}/>
+    <Inp label="액션 내용" value={f.title} onChange={s("title")} placeholder="예: 견적서 제출, 기술 자료 발송"/>
+    {!defaultOppId && (
+      <Sel label="영업기회" value={f.oppId} onChange={v=>sF(p=>({...p,oppId:v,clientId:opps.find(o=>o.id===v)?.accountId||p.clientId}))} options={[{value:"",label:"— 선택 —"},...(opps||[]).map(o=>({value:o.id,label:o.name}))]}/>
+    )}
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
       <Inp label="마감일" type="date" value={f.dueDate} onChange={s("dueDate")}/>
       <Sel label="우선순위" value={f.priority} onChange={s("priority")} options={["높음","중간","낮음"]}/>
     </div>
     <Inp label="진행 메모 (선택)" value={f.note||""} onChange={s("note")} multiline placeholder="진행 상황, 참고사항 등"/>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{"취소"}</Btn><Btn onClick={()=>onSave({...f,id:action?.id||uid()})}>{"저장"}</Btn></div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{"취소"}</Btn><Btn onClick={()=>f.title&&onSave({...f,id:action?.id||uid()})}>{"저장"}</Btn></div>
   </Modal>;
 }
 
@@ -3744,7 +3751,13 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
 
     {/* Modals */}
     {tmplModal && <TemplateModal opps={opps} clients={clients} onSave={applyTemplate} onClose={()=>sTM(false)}/>}
-    {(modal==="add"||(modal&&modal.id)) && <ActionForm action={modal==="add"?null:modal} clients={clients} opps={opps} onClose={()=>sM(null)} onSave={data=>{onUpdate(prev=>modal==="add"?[...prev,data]:prev.map(a=>a.id===data.id?data:a));sM(null);}}/>}
+    {(modal==="add"||(modal&&modal.id)) && <ActionForm
+      action={modal==="add"?null:modal}
+      clients={clients||[]}
+      opps={opps||[]}
+      onClose={()=>sM(null)}
+      onSave={data=>{ onUpdate(prev=>modal==="add"?[...prev,{...data,id:data.id||uid()}]:prev.map(a=>a.id===data.id?data:a)); sM(null); }}
+    />}
   </div>;
 }
 
