@@ -361,11 +361,11 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
   </div>;
 }
 
-function Sel({ label, value, onChange, options }) {
+function Sel({ label, value, onChange, options=[] }) {
   return <div style={{ marginBottom:16 }}>
     {label&&<label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
     <select value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
-      {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+      {(options||[]).map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
     </select>
   </div>;
 }
@@ -1811,7 +1811,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
     </div>}
 
     {/* ── 액션 ── */}
-    {subTab==="actions"&&<div>
+    {subTab==="actionsTab"&&<div>
       {/* 헤더 */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
         <div>
