@@ -365,7 +365,11 @@ function Sel({ label, value, onChange, options=[] }) {
   return <div style={{ marginBottom:16 }}>
     {label&&<label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
     <select value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
-      {(options||[]).map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+      {(options||[]).map((o,i)=>{
+        const val = typeof o === "object" ? (o.value ?? "") : o;
+        const lbl = typeof o === "object" ? (o.label ?? o.value ?? "") : o;
+        return <option key={String(val)+i} value={val}>{lbl}</option>;
+      })}
     </select>
   </div>;
 }
@@ -3594,23 +3598,32 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
 }
 
 function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
-  const [f,sF]=useState(action||{
-    title:"", oppId:defaultOppId||action?.oppId||opps[0]?.id||"",
-    clientId:clients[0]?.id||"", owner:"", dueDate:"", priority:"중간", done:false, note:""
-  });
-  const s=k=>v=>sF(p=>({...p,[k]:v}));
+  const safeOpps = opps||[];
+  const initOppId = defaultOppId || action?.oppId || safeOpps[0]?.id || "";
+  const [f,sF] = useState(action
+    ? {...action, oppId: action.oppId||initOppId}
+    : { title:"", oppId:initOppId, clientId:"", owner:"", dueDate:"", priority:"중간", done:false, note:"" }
+  );
+  const s = k => v => sF(p=>({...p,[k]:v}));
+
   return <Modal title={action?"액션 수정":"액션 추가"} onClose={onClose}>
     <Inp label="액션 내용" value={f.title} onChange={s("title")} placeholder="예: 견적서 제출, 기술 자료 발송"/>
-    {!defaultOppId && (
-      <Sel label="영업기회" value={f.oppId} onChange={v=>sF(p=>({...p,oppId:v,clientId:opps.find(o=>o.id===v)?.accountId||p.clientId}))} options={[{value:"",label:"— 선택 —"},...(opps||[]).map(o=>({value:o.id,label:o.name}))]}/>
+    {!defaultOppId && safeOpps.length > 0 && (
+      <Sel label="영업기회" value={f.oppId}
+        onChange={v=>sF(p=>({...p, oppId:v, clientId:safeOpps.find(o=>o.id===v)?.accountId||""}))}
+        options={[{value:"",label:"— 선택 —"}, ...safeOpps.map(o=>({value:o.id,label:o.name}))]}
+      />
     )}
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-      <Inp label="담당자" value={f.owner} onChange={s("owner")}/>
+      <Inp label="담당자" value={f.owner} onChange={s("owner")} placeholder="이름"/>
       <Inp label="마감일" type="date" value={f.dueDate} onChange={s("dueDate")}/>
       <Sel label="우선순위" value={f.priority} onChange={s("priority")} options={["높음","중간","낮음"]}/>
     </div>
     <Inp label="진행 메모 (선택)" value={f.note||""} onChange={s("note")} multiline placeholder="진행 상황, 참고사항 등"/>
-    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}><Btn variant="ghost" onClick={onClose}>{"취소"}</Btn><Btn onClick={()=>f.title&&onSave({...f,id:action?.id||uid()})}>{"저장"}</Btn></div>
+    <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+      <Btn variant="ghost" onClick={onClose}>취소</Btn>
+      <Btn onClick={()=>{ if(!f.title.trim()) return; onSave({...f, id:action?.id||uid()}); }}>저장</Btn>
+    </div>
   </Modal>;
 }
 
