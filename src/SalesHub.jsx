@@ -3412,7 +3412,7 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
             const ov=isLate(a.dueDate);
             return <div key={a.id} style={{ display:"flex", gap:10, marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${C.border}` }}>
               <span style={{ width:6, height:6, borderRadius:"50%", background:PRI_CFG[a.priority], marginTop:5, flexShrink:0 }}/>
-              <div style={{ flex:1 }}><div style={{ fontSize:13, color:C.text }}>{a.title}</div><div style={{ fontSize:11, color:C.textMuted }}>{cl.name||opp.name} · {a.owner}</div></div>
+              <div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:600, color:C.text }}>{a.title}</div><div style={{ fontSize:13, color:C.textMuted }}>{cl.name||opp.name} · {a.owner}</div></div>
               <span style={{ fontSize:11, color:ov?C.red:C.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
             </div>;
           })}
@@ -3753,8 +3753,8 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:14, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none", marginBottom:2 }}>{a.title}</div>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <span style={{ fontSize:11, color:C.textMuted }}>{opp.name||"—"}</span>
-                {a.owner && <span style={{ fontSize:11, color:C.textMuted }}>· {a.owner}</span>}
+                <span style={{ fontSize:13, color:C.textMuted }}>{opp.name||"—"}</span>
+                {a.owner && <span style={{ fontSize:13, color:C.textMuted }}>· {a.owner}</span>}
                 {a.done && <span style={{ fontSize:10, background:C.greenSoft, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료 → 활동 자동 기록됨</span>}
               </div>
               {/* Progress note */}
@@ -4155,9 +4155,9 @@ ${snap.lastMeetingFocus}
                           <div style={{ minWidth:0 }}>
                             <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)}
                               style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                              <div style={{ fontSize:14, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</div>
+                              <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</div>
                             </button>
-                            <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>{cl.name} · {opp.owner} 담당</div>
+                            <div style={{ fontSize:15, fontWeight:600, color:C.text, marginTop:2 }}>{cl.name} <span style={{ color:C.textMuted, fontWeight:500 }}>· {opp.owner} 담당</span></div>
                           </div>
                         </div>
                         <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
@@ -4197,7 +4197,7 @@ ${snap.lastMeetingFocus}
                                 <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
                                 <span style={{ fontSize:11, color:C.textDim }}>{a.date} · {a.by}</span>
                               </div>
-                              <div style={{ fontSize:12, color:C.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{a.content}</div>
+                              <div style={{ fontSize:14, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{a.content}</div>
                             </div>
                           </div>
                         ))}
@@ -4209,7 +4209,7 @@ ${snap.lastMeetingFocus}
                             <div style={{ flex:1 }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                                 <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{a.title}</span>
-                                <span style={{ fontSize:11, color:C.textDim }}>{a.owner}</span>
+                                <span style={{ fontSize:13, color:C.textMuted }}>{a.owner}</span>
                                 <span style={{ fontSize:10, background:`${C.green}15`, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료</span>
                               </div>
                             </div>
@@ -4260,8 +4260,8 @@ ${snap.lastMeetingFocus}
                             <div style={{ width:30, height:30, borderRadius:8, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.green }}>{client.name[0]}</div>
                             <button onClick={()=>onNavigateToClient&&onNavigateToClient(client)}
                               style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                              <div style={{ fontSize:13, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{client.name}</div>
-                              <div style={{ fontSize:11, color:C.textMuted }}>{client.industry} · {client.owner} 담당</div>
+                              <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{client.name}</div>
+                              <div style={{ fontSize:15, color:C.textMuted }}>{client.industry} · {client.owner} 담당</div>
                             </button>
                           </div>
                           <span style={{ fontSize:11, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{weekHist.length}건</span>
@@ -4277,7 +4277,7 @@ ${snap.lastMeetingFocus}
                                     <span style={{ fontSize:11, fontWeight:700, color:tc.color }}>{h.type}</span>
                                     <span style={{ fontSize:11, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
                                   </div>
-                                  {h.content && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.6, marginTop:2, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>}
+                                  {h.content && <div style={{ fontSize:14, color:C.text, lineHeight:1.7, marginTop:2, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>}
                                 </div>
                               </div>
                             );
