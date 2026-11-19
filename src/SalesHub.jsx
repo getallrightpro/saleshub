@@ -2124,20 +2124,17 @@ function OppListView({ opps, clients, onSelect }) {
 }
 
 // ── Pipeline Main ─────────────────────────────────────────────────────────────
-function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, initialTarget, onClearTarget, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin, onNavigateToClient }) {
+function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selectedId, onSelectOpp, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin, onNavigateToClient }) {
   const [pipeTab, setPipeTab]   = useState("pipeline");
   const [view, setView]         = useState("kanban");
-  const [selected, setSelected] = useState(initialTarget || null);
+  const selected = selectedId ? ((opps||[]).find(o=>o.id===selectedId) || (archived||[]).find(o=>o.id===selectedId) || null) : null;
+  const setSelected = (o) => onSelectOpp(o || null);
   const [addModal, setAddModal] = useState(false);
   const [ownerFilter,  setOwner] = useState("전체");
   const [stageFilter,  setStage] = useState("활성");
   const [buFilter,     setBU]      = useState("전체"); // 사업부 필터
   const [typeFilter,   setTypeFil] = useState("전체"); // 영업기회 유형 필터
   const [archSearch,   setAS]    = useState("");
-
-  useEffect(() => {
-    if (initialTarget) { setSelected(initialTarget); onClearTarget && onClearTarget(); }
-  }, [initialTarget]);
 
   if (selected) return <OppDetail opp={opps.find(o=>o.id===selected.id)||selected} clients={clients} onUpdate={onUpdateOpps} onBack={()=>setSelected(null)} actions={actions} onUpdateActions={onUpdateActions} onArchive={onArchive} isAdmin={isAdmin} onDelete={id=>{ onUpdateOpps(prev=>prev.filter(o=>o.id!==id)); sbDelete("opps", id); }} onNavigateToClient={onNavigateToClient}/>;
 
@@ -3180,17 +3177,14 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
   </Modal>;
 }
 
-function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClients, archivedDb, onArchiveClient, onRestoreClient, isAdmin, onNavigateToPipeline, initialClient, onClearClient }) {
-  const [selected,   setSelected] = useState(initialClient || null);
+function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClients, archivedDb, onArchiveClient, onRestoreClient, isAdmin, onNavigateToPipeline, selectedId, onSelectClient }) {
+  const selected = selectedId ? ((clients||[]).find(c=>String(c.id)===String(selectedId)) || null) : null;
+  const setSelected = (c) => onSelectClient(c || null);
   const [search,     setSearch]   = useState("");
   const [indFilter,  setInd]      = useState("전체");
   const [modal,      setModal]    = useState(null);
   const [clientTab,  setCTab]     = useState("active");
   const [archSearch, setAS]       = useState("");
-
-  useEffect(() => {
-    if (initialClient) { setSelected(initialClient); onClearClient && onClearClient(); }
-  }, [initialClient]);
 
   if (selected) return <ClientDetail client={selected} db={db} onUpdateDb={onUpdateDb} onBack={()=>setSelected(null)} opps={opps} onNavigateToPipeline={onNavigateToPipeline}/>;
 
@@ -3665,7 +3659,7 @@ function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
   </Modal>;
 }
 
-function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
+function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToPipeline }) {
   const [modal,    sM]  = useState(null);
   const [tmplModal,sTM] = useState(false);
   const [filter,   sF]  = useState("전체");
@@ -3780,6 +3774,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
     <div style={{ display:"grid", gap:8 }}>
       {list.map(a=>{
         const opp = opps.find(o=>o.id===a.oppId)||{};
+        const aCl = clients.find(c=>String(c.id)===String(opp.accountId))||{};
         const ov  = !a.done && isLate(a.dueDate);
         const isToday = !a.done && a.dueDate === todayStr;
         return <Card key={a.id} style={{ padding:"13px 18px", opacity:a.done?.55:1 }}>
@@ -3791,7 +3786,10 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps }) {
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:14, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none", marginBottom:2 }}>{a.title}</div>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <span style={{ fontSize:13, color:C.textMuted }}>{opp.name||"—"}</span>
+                <span style={{ fontSize:13, fontWeight:700, color:C.text, background:C.surfaceUp, border:`1px solid ${C.border}`, padding:"1px 9px", borderRadius:6 }}>🏢 {aCl.name||"고객사 미지정"}</span>
+                {opp.id
+                  ? <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:"inherit", fontSize:13, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</button>
+                  : <span style={{ fontSize:13, color:C.textMuted }}>파이프라인 미연결</span>}
                 {a.owner && <span style={{ fontSize:13, color:C.textMuted }}>· {a.owner}</span>}
                 {a.done && <span style={{ fontSize:10, background:C.greenSoft, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료 → 활동 자동 기록됨</span>}
               </div>
@@ -6138,39 +6136,49 @@ function App() {
   const [meetings, sMt]   = useState(INIT_MEETINGS);
   const [actions, sAc]    = useState(INIT_ACTIONS);
   const [goals, sGoals]   = useState(INIT_GOALS);
-  const [searchTarget, setST]   = useState(null);
-  const [clientTarget, setCT]   = useState(null); // client to jump to in clientdb
+  const [oppSel, setOppSel]       = useState(null);    // 파이프라인 상세 (opp id)
+  const [clientSel, setClientSel] = useState(null);    // 고객사 상세 (client id)
   const [revEditOpp, setRE]     = useState(null);
 
-  // ── History API — 뒤로가기/앞으로가기 지원 ──
-  const navigate = (tabId) => {
-    window.history.pushState({ tab: tabId }, "", `#${tabId}`);
-    sT(tabId);
+  // ── History API — 화면 상태(탭 + 상세) 전체를 히스토리에 저장 ──
+  const pushView = (st) => {
+    try { window.history.replaceState({ ...(window.history.state||{}), scrollY: window.scrollY }, ""); } catch {}
+    window.history.pushState(st, "", `#${st.tab}`);
+    sT(st.tab); setOppSel(st.oppId||null); setClientSel(st.clientId||null);
+    window.scrollTo(0, 0);
   };
+  const navigate = (tabId) => pushView({ tab: tabId });
 
-  // 뒤로가기/앞으로가기 이벤트 처리
   useEffect(() => {
     const handlePop = (e) => {
-      const tabId = e.state?.tab || "dashboard";
-      sT(tabId);
+      const st = e.state || { tab: "dashboard" };
+      sT(st.tab || "dashboard"); setOppSel(st.oppId||null); setClientSel(st.clientId||null);
+      setTimeout(() => window.scrollTo(0, st.scrollY || 0), 60);
     };
     window.addEventListener("popstate", handlePop);
-    // 초기 진입 시 현재 URL hash에서 탭 복원
+    const hs = window.history.state;
     const hash = window.location.hash.replace("#", "");
-    const validTab = TABS.find(t => t.id === hash);
-    if (validTab) sT(validTab.id);
-    else window.history.replaceState({ tab: "dashboard" }, "", "#dashboard");
+    if (hs && hs.tab) { sT(hs.tab); setOppSel(hs.oppId||null); setClientSel(hs.clientId||null); }
+    else {
+      const validTab = TABS.find(t => t.id === hash);
+      if (validTab) sT(validTab.id);
+      window.history.replaceState({ tab: validTab ? validTab.id : "dashboard" }, "", `#${validTab ? validTab.id : "dashboard"}`);
+    }
     return () => window.removeEventListener("popstate", handlePop);
   }, []);
 
-  // 크로스 네비게이션도 History 반영
-  const handleNavigateToClient = (client) => {
-    setCT(client);
-    navigate("clientdb");
+  const handleNavigateToClient   = (client) => pushView({ tab:"clientdb", clientId: client.id });
+  const handleNavigateToPipeline = (opp)    => pushView({ tab:"pipeline", oppId: opp.id });
+  // 목록 ↔ 상세 이동: 열기는 push, 닫기(뒤로)는 history.back
+  const selectOpp = (o) => {
+    if (o) pushView({ tab:"pipeline", oppId:o.id });
+    else if (window.history.state?.oppId) window.history.back();
+    else setOppSel(null);
   };
-  const handleNavigateToPipeline = (opp) => {
-    setST(opp);
-    navigate("pipeline");
+  const selectClient = (c) => {
+    if (c) pushView({ tab:"clientdb", clientId:c.id });
+    else if (window.history.state?.clientId) window.history.back();
+    else setClientSel(null);
   };
   const [dbReady, setDbReady] = useState(false);
   const [saving,  setSaving]  = useState(false);
@@ -6355,7 +6363,7 @@ function App() {
   const pending   = actions.filter(a=>!a.done).length;
   const lateCount = actions.filter(a=>!a.done&&isLate(a.dueDate)).length;
 
-  const handleSearchNav = (targetTab, opp) => { sT(targetTab); if (opp) setST(opp); };
+  const handleSearchNav = (targetTab, opp) => { if (opp) handleNavigateToPipeline(opp); else navigate(targetTab); };
 
   return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text, transition:"background .3s, color .3s" }}>
     <div style={{ borderBottom:`1px solid ${C.border}`, padding:"0 32px", background:C.surface, position:"sticky", top:0, zIndex:100, boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
@@ -6401,11 +6409,11 @@ function App() {
     </div>
 
     <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px" }}>
-      {tab==="dashboard"&&<Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients} db={db} onNavigateToPipeline={handleNavigateToPipeline} onNavigateToClient={handleNavigateToClient}/>}
-      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} initialTarget={searchTarget} onClearTarget={()=>setST(null)} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin} onNavigateToClient={handleNavigateToClient}/>}
+      <div style={{ display:tab==="dashboard"?"block":"none" }}><Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients} db={db} onNavigateToPipeline={handleNavigateToPipeline} onNavigateToClient={handleNavigateToClient}/></div>
+      {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} selectedId={oppSel} onSelectOpp={selectOpp} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin} onNavigateToClient={handleNavigateToClient}/>}
       {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={saveGoals} onEditRevDate={o=>setRE(o)}/>}
-      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps} archivedClients={archivedClients} archivedDb={archivedDb} onArchiveClient={archiveClient} onRestoreClient={restoreClient} isAdmin={isAdmin} onNavigateToPipeline={handleNavigateToPipeline} initialClient={clientTarget} onClearClient={()=>setCT(null)}/>}
-      {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={saveActions} onUpdateOpps={saveOpps}/>}
+      {tab==="clientdb" &&<ClientDB  clients={clients} onUpdateClients={saveClients} db={db} onUpdateDb={saveDb} opps={opps} archivedClients={archivedClients} archivedDb={archivedDb} onArchiveClient={archiveClient} onRestoreClient={restoreClient} isAdmin={isAdmin} onNavigateToPipeline={handleNavigateToPipeline} selectedId={clientSel} onSelectClient={selectClient}/>}
+      {tab==="actions"  &&<Actions   actions={actions} clients={clients} opps={opps} onUpdate={saveActions} onUpdateOpps={saveOpps} onNavigateToPipeline={handleNavigateToPipeline}/>}
     </div>
     {revEditOpp && <RevDateEditModal opp={revEditOpp} onClose={()=>setRE(null)}
       onSave={d=>{ saveOpps(prev=>prev.map(o=>o.id===revEditOpp.id?{...o,revenueDate:d}:o)); setRE(null); }}
