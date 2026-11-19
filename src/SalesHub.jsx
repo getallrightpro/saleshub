@@ -674,7 +674,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
 
       {/* 영업 전략 메모 */}
       <div style={{ gridColumn:"1/-1" }}>
-        <Inp label="영업 전략 메모" value={f.strategyNote||""} onChange={s("strategyNote")} multiline placeholder="이 딜의 핵심 전략, 유의사항 등"/>
+        <Inp label="추진 전략" value={f.strategyNote||""} onChange={s("strategyNote")} multiline placeholder="이 딜의 핵심 전략, 유의사항 등"/>
       </div>
     </div>
 
@@ -903,6 +903,42 @@ const uploadToTeams = async (file, date) => {
   };
 };
 
+// ─── 활동 내용 보고서형 표시 (RichText / ActivityBody) ───────────────────────
+function RichText({ text, size=14, summaryFirst=true }) {
+  const lines = String(text||"").split("\n").map(l=>l.replace(/\s+$/,"")).filter(l=>l.trim()!=="");
+  if (lines.length===0) return null;
+  const bulletRe = /^\s*([-•·*▪●○]|\d+[.)])\s+/;
+  const isBullet = l => bulletRe.test(l);
+  const hasBullets = lines.some(isBullet);
+  return <div style={{ fontSize:size, color:C.text, lineHeight:1.7, wordBreak:"break-word" }}>
+    {lines.map((l,i)=>{
+      if (isBullet(l)) {
+        return <div key={i} style={{ display:"flex", gap:8, paddingLeft:4, marginTop:2 }}>
+          <span style={{ color:C.accent, fontWeight:800, flexShrink:0 }}>•</span>
+          <span>{l.replace(bulletRe,"")}</span>
+        </div>;
+      }
+      const asSummary = summaryFirst && i===0 && (lines.length>1);
+      return <div key={i} style={{ fontWeight:asSummary?700:400, marginTop:i>0&&hasBullets?6:(i>0?2:0) }}>{l}</div>;
+    })}
+  </div>;
+}
+
+function ActivityBody({ a, size=14, showRequest=true }) {
+  const sec = (label, color, val) => val ? (
+    <div style={{ marginTop:8, paddingLeft:10, borderLeft:`3px solid ${color}` }}>
+      <div style={{ fontSize:Math.max(size-3,11), fontWeight:800, color, letterSpacing:".04em", marginBottom:2 }}>{label}</div>
+      <RichText text={val} size={size} summaryFirst={false}/>
+    </div>
+  ) : null;
+  return <div>
+    <RichText text={a.content} size={size}/>
+    {sec("✔ 결과", C.green, a.result)}
+    {sec("➜ 다음 단계", C.accent, a.nextStep)}
+    {showRequest && sec("💬 고객 요청", C.yellow, a.clientRequest)}
+  </div>;
+}
+
 // ─── Activity Modal (Teams 업로드 포함) ──────────────────────────────────────
 function ActivityModal({ act, onSave, onClose }) {
   const [f,         sF]       = useState(act||{date:today(),type:"방문미팅",content:"",clientRequest:"",by:""});
@@ -946,7 +982,9 @@ function ActivityModal({ act, onSave, onClose }) {
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
       <Sel label="유형" value={f.type} onChange={s("type")} options={ACT_TYPES}/>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="활동 내용" value={f.content} onChange={s("content")} multiline placeholder="미팅 내용, 논의 사항 등을 기록하세요"/></div>
+      <div style={{ gridColumn:"1/-1" }}><Inp label="논의 내용" value={f.content} onChange={s("content")} multiline placeholder={"첫 줄은 한 줄 요약으로 적어주세요 (보고 시 굵게 표시)\n- 세부 내용은 '- '로 시작하면 글머리표로 보입니다"}/></div>
+      <div style={{ gridColumn:"1/-1" }}><Inp label="결과 (선택)" value={f.result||""} onChange={s("result")} multiline placeholder="미팅/활동의 결과, 합의된 사항"/></div>
+      <div style={{ gridColumn:"1/-1" }}><Inp label="다음 단계 (선택)" value={f.nextStep||""} onChange={s("nextStep")} multiline placeholder="후속 조치, 다음 일정 등"/></div>
       <div style={{ gridColumn:"1/-1" }}>
         <Inp label="고객사 요청사항" value={f.clientRequest||""} onChange={s("clientRequest")} multiline placeholder="고객사에서 요청한 사항, 질문, 피드백 등을 기록하세요 (선택)"/>
       </div>
@@ -1557,7 +1595,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
 
         <Inp label="경쟁사" value={editForm.competitors} onChange={v=>setEF(p=>({...p,competitors:v}))}/>
-        <Inp label="영업 전략 메모" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
+        <Inp label="추진 전략" value={editForm.strategyNote} onChange={v=>setEF(p=>({...p,strategyNote:v}))} multiline/>
         <Inp label="고객 요구사항 / Spec" value={editForm.clientRequirements||""} onChange={v=>setEF(p=>({...p,clientRequirements:v}))} multiline placeholder="고객사의 기술 스펙, 납기 조건, 예산, 기타 요구사항을 상세히 기록하세요"/>
         <Inp label="경쟁사" value={editForm.competitors||""} onChange={v=>setEF(p=>({...p,competitors:v}))} placeholder="A사, B사"/>
         <div style={{ display:"flex", gap:10 }}><Btn variant="ghost" onClick={()=>setEdit(false)}>{"취소"}</Btn><Btn onClick={()=>{update(editForm);setEdit(false);}}>{"저장"}</Btn></div>
@@ -1612,7 +1650,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
         {/* 영업 전략 메모 */}
         <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>💡 영업 전략 메모</div>
+          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>💡 추진 전략</div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
@@ -1770,7 +1808,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`활동 기록 "${a.content?.slice(0,30)||a.type}"을 삭제하시겠습니까?`)) onUpdate(prev=>prev.map(o=>o.id===opp.id?{...o,activities:(o.activities||[]).filter(x=>x.id!==a.id)}:o)); }}>삭제</Btn>
             </div>
           </div>
-          <div style={{ fontSize:13, color:C.text, lineHeight:1.7, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.content}</div>
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}><ActivityBody a={a} size={14} showRequest={false}/></div>
           {a.clientRequest && (
             <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
               <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
@@ -3805,6 +3843,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
   const [copied, setCopied]   = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [buFilter,   setBU]         = useState("전체"); // 사업부 필터
+  const [rtab, setRtab] = useState("pipeline");
 
   // Week range helper
   const getWeekRange = (offset = 0) => {
@@ -4055,6 +4094,77 @@ ${snap.lastMeetingFocus}
       })()}
     </div>
 
+    {/* ── 리포트 탭 ── */}
+    <div style={{ display:"flex", gap:6, marginBottom:20, borderBottom:`2px solid ${C.border}` }}>
+      {[{k:"pipeline",l:"📊 수주 추진 현황"},{k:"activity",l:"📝 주간 영업활동"},{k:"followup",l:"⏰ Follow-up"},{k:"ai",l:"🤖 AI 리포트"}].map(t=>(
+        <button key={t.k} onClick={()=>setRtab(t.k)} style={{ padding:"10px 20px", fontSize:15, fontWeight:rtab===t.k?800:600, color:rtab===t.k?C.accent:C.textMuted, background:"transparent", border:"none", borderBottom:`3px solid ${rtab===t.k?C.accent:"transparent"}`, marginBottom:-2, cursor:"pointer", fontFamily:"inherit" }}>{t.l}</button>
+      ))}
+    </div>
+
+    {/* ── 수주 추진 현황 표 ── */}
+    {rtab==="pipeline" && (() => {
+      const rows = filteredOpps
+        .filter(o => o.stage !== "손실" && o.stage !== "수주확정")
+        .slice().sort((a,b) => (Number(b.value)||0) - (Number(a.value)||0));
+      const total = rows.reduce((sum,o)=>sum+(Number(o.value)||0),0);
+      const firstLine = (t) => String(t||"").split("\n").map(x=>x.trim()).filter(Boolean)[0] || "";
+      const cols = "minmax(120px,1fr) minmax(200px,1.6fr) 110px 110px minmax(260px,2.6fr) 90px";
+      const th = { padding:"10px 12px", fontSize:14, fontWeight:800, color:C.text, textAlign:"center", background:C.surfaceUp, borderRight:`1px solid ${C.border}` };
+      const td = { padding:"12px", fontSize:15, color:C.text, borderRight:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center", wordBreak:"break-word" };
+      return (
+        <Card style={{ marginBottom:24, padding:0, overflow:"hidden" }}>
+          <div style={{ padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+            <div style={{ fontSize:18, fontWeight:800, color:C.text }}>수주 추진 현황 <span style={{ fontSize:13, color:C.textMuted, fontWeight:500 }}>· 금액 큰 순 · {rows.length}건</span></div>
+            <div style={{ fontSize:13, color:C.textMuted }}><span style={{ color:C.accent, fontWeight:700 }}>파란색</span> = 금주({week.label}) 업데이트</div>
+          </div>
+          <div style={{ overflowX:"auto" }}>
+            <div style={{ minWidth:900 }}>
+              <div style={{ display:"grid", gridTemplateColumns:cols, borderBottom:`1px solid ${C.border}` }}>
+                {["업체명","프로젝트명","예상 금액","예상 수주일","진행 단계","담당"].map(h=><div key={h} style={th}>{h}</div>)}
+              </div>
+              {rows.length===0 && <div style={{ padding:"28px", textAlign:"center", color:C.textMuted, fontSize:14 }}>진행 중인 파이프라인이 없습니다</div>}
+              {rows.map(o => {
+                const cl = clients.find(c => c.id === o.accountId) || {};
+                const st = STAGE_MAP[o.stage] || {};
+                const ev = [
+                  ...(o.activities||[]).map(a=>({ date:a.date, text:`${a.type}${firstLine(a.content)?" — "+firstLine(a.content):""}` })),
+                  ...(o.stageHistory||[]).map(h=>({ date:h.date, text:`단계 변경 → ${h.stage}` })),
+                  ...actions.filter(a=>a.oppId===o.id && a.done && a.dueDate).map(a=>({ date:a.dueDate, text:`액션 완료: ${a.title}` })),
+                ].filter(e=>e.date).sort((a,b)=>a.date.localeCompare(b.date)).slice(-4);
+                return (
+                  <div key={o.id} style={{ display:"grid", gridTemplateColumns:cols, borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ ...td, fontWeight:700 }}>{cl.name||"—"}</div>
+                    <div style={{ ...td, justifyContent:"flex-start", textAlign:"left" }}>
+                      <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)} style={{ background:"none", border:"none", cursor:"pointer", padding:0, fontFamily:"inherit", textAlign:"left" }}>
+                        <span style={{ fontSize:16, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{o.name}</span>
+                      </button>
+                    </div>
+                    <div style={{ ...td, fontWeight:800 }}>{fmt(o.value)}</div>
+                    <div style={{ ...td, fontSize:14, color:o.closeDate&&o.closeDate<today()?C.red:C.text }}>{o.closeDate||"—"}</div>
+                    <div style={{ ...td, display:"block", textAlign:"left", fontSize:14, lineHeight:1.7 }}>
+                      <span style={{ display:"inline-block", marginBottom:4, padding:"1px 10px", borderRadius:20, fontSize:13, fontWeight:700, color:st.color, background:`${st.color}18` }}>{o.stage}</span>
+                      {ev.length===0 && <div style={{ color:C.textMuted }}>기록 없음</div>}
+                      {ev.map((e,i)=>{
+                        const cur = e.date>=week.start && e.date<=week.end;
+                        return <div key={i} style={{ color:cur?C.accent:C.text, fontWeight:cur?700:400 }}>{e.date.slice(5).replace("-","/")} · {e.text}</div>;
+                      })}
+                    </div>
+                    <div style={{ ...td, fontSize:14, borderRight:"none" }}>{o.owner||"—"}</div>
+                  </div>
+                );
+              })}
+              <div style={{ display:"grid", gridTemplateColumns:cols, background:C.surfaceUp }}>
+                <div style={{ ...th, gridColumn:"1 / 3", fontSize:16 }}>합 계</div>
+                <div style={{ ...th, fontSize:16 }}>{fmt(total)}</div>
+                <div style={{ ...th, gridColumn:"4 / 7", borderRight:"none" }}/>
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+    })()}
+
+    {rtab==="activity" && <>
     {/* ── 주간 활동 Summary ── */}
     {(() => {
       // 금주/전주 탭용 상태는 WeeklyReport 컴포넌트 state 활용
@@ -4143,11 +4253,15 @@ ${snap.lastMeetingFocus}
             {/* 파이프라인 업데이트 */}
             {weeklyActive.length > 0 && (
               <div style={{ marginBottom: weekClientHistory.length > 0 ? 20 : 0 }}>
-                <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>📦 파이프라인 업데이트</div>
+                <div style={{ fontSize:13, color:C.textMuted, fontWeight:700, letterSpacing:".07em", marginBottom:10 }}>📦 파이프라인 업데이트</div>
+                <div style={{ display:"grid", gridTemplateColumns:"minmax(200px,1fr) 2.4fr 1.3fr", gap:20, padding:"8px 18px", fontSize:14, fontWeight:800, color:C.text, borderBottom:`2px solid ${C.border}`, marginBottom:12 }}>
+                  <div>제목</div><div>주요 내용</div><div>추진 전략</div>
+                </div>
                 <div style={{ display:"grid", gap:12 }}>
                   {weeklyActive.map(({ opp, cl, s, weekActivities, weekStageChanges, weekDoneActions, weekPendingActions }) => (
-                    <div key={opp.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px 18px" }}>
-                      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
+                    <div key={opp.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 18px", display:"grid", gridTemplateColumns:"minmax(200px,1fr) 2.4fr 1.3fr", gap:20 }}>
+                      <div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
                           <div style={{ width:34, height:34, borderRadius:9, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:800, color:C.accent, flexShrink:0 }}>
                             {cl.name?.[0] || "?"}
@@ -4169,6 +4283,8 @@ ${snap.lastMeetingFocus}
                         </div>
                       </div>
 
+                      </div>
+                      <div>
                       <div style={{ display:"grid", gap:6 }}>
                         {weekStageChanges.map(h => {
                           const sc = STAGE_MAP[h.stage] || {};
@@ -4197,7 +4313,7 @@ ${snap.lastMeetingFocus}
                                 <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
                                 <span style={{ fontSize:11, color:C.textDim }}>{a.date} · {a.by}</span>
                               </div>
-                              <div style={{ fontSize:14, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{a.content}</div>
+                              <ActivityBody a={a} size={15}/>
                             </div>
                           </div>
                         ))}
@@ -4234,6 +4350,10 @@ ${snap.lastMeetingFocus}
                           </div>
                         </div>
                       )}
+                      </div>
+                      <div style={{ borderLeft:`3px solid ${C.accent}`, paddingLeft:12 }}>
+                        {opp.strategyNote ? <RichText text={opp.strategyNote} size={14} summaryFirst={false}/> : <span style={{ fontSize:13, color:C.textDim }}>전략 미작성 — 파이프라인 개요에서 입력</span>}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -4277,7 +4397,7 @@ ${snap.lastMeetingFocus}
                                     <span style={{ fontSize:11, fontWeight:700, color:tc.color }}>{h.type}</span>
                                     <span style={{ fontSize:11, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
                                   </div>
-                                  {h.content && <div style={{ fontSize:14, color:C.text, lineHeight:1.7, marginTop:2, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>}
+                                  {h.content && <div style={{ marginTop:2 }}><RichText text={h.content} size={15}/></div>}
                                 </div>
                               </div>
                             );
@@ -4295,6 +4415,76 @@ ${snap.lastMeetingFocus}
     })()}
 
 
+    </>}
+
+    {rtab==="followup" && <>
+    {/* ── 2주 이상 활동 없는 파이프라인 (Follow-up) ── */}
+    {(() => {
+      const STALE_DAYS = 14;
+      const dayDiff = (d) => Math.floor((new Date(today()) - new Date(d)) / 86400000);
+      const stale = filteredOpps
+        .filter(o => o.stage !== "손실" && o.stage !== "수주확정")
+        .map(o => {
+          const cl = clients.find(c => c.id === o.accountId) || {};
+          const dates = [
+            ...(o.activities||[]).map(a=>a.date),
+            ...(o.stageHistory||[]).map(h=>h.date),
+            ...actions.filter(a=>a.oppId===o.id && a.done).map(a=>a.dueDate),
+          ].filter(Boolean).sort();
+          const last = dates.length ? dates[dates.length-1] : null;
+          const lastAct = (o.activities||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0];
+          const pending = actions.filter(a=>a.oppId===o.id && !a.done).sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""))[0];
+          return { o, cl, last, idle: last ? dayDiff(last) : 9999, lastAct, pending };
+        })
+        .filter(x => x.idle >= STALE_DAYS)
+        .sort((a,b) => b.idle - a.idle);
+      return (
+        <Card style={{ marginBottom:24 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, paddingBottom:14, borderBottom:`1px solid ${C.border}` }}>
+            <div style={{ fontSize:16, fontWeight:800, color:C.text }}>⏰ Follow-up 필요 — {STALE_DAYS}일 이상 활동 없음</div>
+            <span style={{ fontSize:13, color:stale.length>0?C.red:C.green, fontWeight:700 }}>{stale.length}건</span>
+          </div>
+          {stale.length===0 ? (
+            <div style={{ textAlign:"center", padding:"20px 0", color:C.textMuted, fontSize:14 }}>모든 파이프라인이 최근 {STALE_DAYS}일 내 활동이 있습니다 👍</div>
+          ) : (
+            <div style={{ display:"grid", gap:10 }}>
+              {stale.map(({ o, cl, last, idle, lastAct, pending }) => {
+                const st = STAGE_MAP[o.stage] || {};
+                return (
+                  <div key={o.id} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderLeft:`4px solid ${idle>=30?C.red:C.yellow}`, borderRadius:12, padding:"14px 18px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                      <div style={{ minWidth:0 }}>
+                        <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)} style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
+                          <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{o.name}</div>
+                        </button>
+                        <div style={{ fontSize:15, fontWeight:600, color:C.text, marginTop:2 }}>{cl.name} <span style={{ color:C.textMuted, fontWeight:500 }}>· {o.owner} 담당</span></div>
+                      </div>
+                      <div style={{ textAlign:"right", flexShrink:0 }}>
+                        <div style={{ fontSize:16, fontWeight:800, color:idle>=30?C.red:C.yellow }}>{last ? `${idle}일째 무활동` : "활동 기록 없음"}</div>
+                        <div style={{ fontSize:13, color:C.textMuted }}>{o.stage} · {fmt(o.value)}{last?` · 마지막 ${last}`:""}</div>
+                      </div>
+                    </div>
+                    {lastAct && (
+                      <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
+                        <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, marginBottom:4 }}>마지막 활동 ({lastAct.type} · {lastAct.date})</div>
+                        <ActivityBody a={lastAct} size={14}/>
+                      </div>
+                    )}
+                    <div style={{ marginTop:8, fontSize:13, color:pending?(pending.dueDate<today()?C.red:C.textMuted):C.red, fontWeight:600 }}>
+                      {pending ? `${pending.dueDate<today()?"⚠ 기한초과 ":"예정 "}액션: ${pending.title} (${pending.owner||"—"}, ${pending.dueDate})` : "⚠ 예정된 액션 없음"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      );
+    })()}
+
+    </>}
+
+    {rtab==="ai" && <>
     {/* ── AI 주간 리포트 ── */}
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
       <div>
@@ -4347,6 +4537,7 @@ ${snap.lastMeetingFocus}
         </div>
       </Card>
     )}
+    </>}
   </div>;
 }
 
