@@ -231,6 +231,7 @@ const STAGE_STRATEGY = {
   "손실":           { icon:"📌", tips:["패인 원인 분석 (가격/기술/납기/경쟁사)","향후 재접촉 가능 시점 평가","경쟁사 선정 이유 파악 및 대응 전략 수립","관계 유지 활동 지속 (정기 연락, 신제품 안내)"] },
 };
 
+const MAJOR_ACT_TYPES = ["방문미팅","화상회의","제안발표","협상미팅","계약서검토"]; // 결과/다음 단계 입력 대상
 const ACT_TYPES = ["방문미팅","전화통화","화상회의","이메일","식사미팅","제안발표","협상미팅","계약서검토","기타"];
 const PRI_CFG   = { "높음":C.red, "중간":"#D97706", "낮음":C.textMuted };
 const FILE_TYPES= ["제안서","계약서","견적서","기술자료","기타"];
@@ -924,7 +925,7 @@ function RichText({ text, size=14, summaryFirst=true }) {
   </div>;
 }
 
-function ActivityBody({ a, size=14, showRequest=true }) {
+function ActivityBody({ a, size=14, showRequest=true, showNext=true }) {
   const sec = (label, color, val) => val ? (
     <div style={{ marginTop:8, paddingLeft:10, borderLeft:`3px solid ${color}` }}>
       <div style={{ fontSize:Math.max(size-3,11), fontWeight:800, color, letterSpacing:".04em", marginBottom:2 }}>{label}</div>
@@ -934,7 +935,7 @@ function ActivityBody({ a, size=14, showRequest=true }) {
   return <div>
     <RichText text={a.content} size={size}/>
     {sec("✔ 결과", C.green, a.result)}
-    {sec("➜ 다음 단계", C.accent, a.nextStep)}
+    {showNext && sec("➜ 다음 단계", C.accent, a.nextStep)}
     {showRequest && sec("💬 고객 요청", C.yellow, a.clientRequest)}
   </div>;
 }
@@ -975,7 +976,8 @@ function ActivityModal({ act, onSave, onClose }) {
   };
 
   const handleSave = () => {
-    onSave({ ...f, id:act?.id||uid(), teamsFile:uploadResult||undefined });
+    const major = MAJOR_ACT_TYPES.includes(f.type);
+    onSave({ ...f, result: major ? f.result : undefined, nextStep: major ? f.nextStep : undefined, id:act?.id||uid(), teamsFile:uploadResult||undefined });
   };
 
   return <Modal title={act?"활동 수정":"활동 기록"} onClose={onClose}>
@@ -983,8 +985,10 @@ function ActivityModal({ act, onSave, onClose }) {
       <Inp label="날짜" type="date" value={f.date} onChange={s("date")}/>
       <Sel label="유형" value={f.type} onChange={s("type")} options={ACT_TYPES}/>
       <div style={{ gridColumn:"1/-1" }}><Inp label="논의 내용" value={f.content} onChange={s("content")} multiline placeholder={"첫 줄은 한 줄 요약으로 적어주세요 (보고 시 굵게 표시)\n- 세부 내용은 '- '로 시작하면 글머리표로 보입니다"}/></div>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="결과 (선택)" value={f.result||""} onChange={s("result")} multiline placeholder="미팅/활동의 결과, 합의된 사항"/></div>
-      <div style={{ gridColumn:"1/-1" }}><Inp label="다음 단계 (선택)" value={f.nextStep||""} onChange={s("nextStep")} multiline placeholder="후속 조치, 다음 일정 등"/></div>
+      {MAJOR_ACT_TYPES.includes(f.type) && <>
+        <div style={{ gridColumn:"1/-1" }}><Inp label="결과 (선택)" value={f.result||""} onChange={s("result")} multiline placeholder="미팅/활동의 결과, 합의된 사항"/></div>
+        <div style={{ gridColumn:"1/-1" }}><Inp label="다음 단계 (선택) — 주간 리포트 '추진 전략'에 표시됩니다" value={f.nextStep||""} onChange={s("nextStep")} multiline placeholder="향후 추진 전략, 후속 조치, 다음 일정 등"/></div>
+      </>}
       <div style={{ gridColumn:"1/-1" }}>
         <Inp label="고객사 요청사항" value={f.clientRequest||""} onChange={s("clientRequest")} multiline placeholder="고객사에서 요청한 사항, 질문, 피드백 등을 기록하세요 (선택)"/>
       </div>
@@ -4311,7 +4315,7 @@ ${snap.lastMeetingFocus}
                                 <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
                                 <span style={{ fontSize:11, color:C.textDim }}>{a.date} · {a.by}</span>
                               </div>
-                              <ActivityBody a={a} size={15}/>
+                              <ActivityBody a={a} size={15} showNext={false}/>
                             </div>
                           </div>
                         ))}
@@ -4350,7 +4354,22 @@ ${snap.lastMeetingFocus}
                       )}
                       </div>
                       <div style={{ borderLeft:`3px solid ${C.accent}`, paddingLeft:12 }}>
-                        {opp.strategyNote ? <RichText text={opp.strategyNote} size={14} summaryFirst={false}/> : <span style={{ fontSize:13, color:C.textDim }}>전략 미작성 — 파이프라인 개요에서 입력</span>}
+                        {(() => {
+                          const strat = weekActivities.filter(a=>a.nextStep && String(a.nextStep).trim());
+                          if (strat.length > 0) return <div style={{ display:"grid", gap:10 }}>
+                            {strat.map(a=>(
+                              <div key={a.id}>
+                                {strat.length>1 && <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, marginBottom:2 }}>{a.date.slice(5).replace("-","/")} {a.type}</div>}
+                                <RichText text={a.nextStep} size={14} summaryFirst={false}/>
+                              </div>
+                            ))}
+                          </div>;
+                          if (opp.strategyNote) return <div>
+                            <RichText text={opp.strategyNote} size={14} summaryFirst={false}/>
+                            <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>(파이프라인 기본 전략)</div>
+                          </div>;
+                          return <span style={{ fontSize:13, color:C.textDim }}>이번 주 입력된 추진 전략 없음</span>;
+                        })()}
                       </div>
                     </div>
                   ))}
