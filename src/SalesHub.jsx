@@ -3510,6 +3510,33 @@ function Meetings({ meetings, onUpdate }) {
 
 // ─── ACTIONS ──────────────────────────────────────────────────────────────────
 
+// ── 액션 업무 유형 + 자동 분류 ──
+const ACTION_CATEGORIES = [
+  { id:"quote",    label:"견적/제안서",   icon:"📄", color:"#2563EB" },
+  { id:"sample",   label:"샘플/시험",     icon:"🧪", color:"#0891B2" },
+  { id:"meeting",  label:"고객 미팅/방문", icon:"🤝", color:"#16A34A" },
+  { id:"tech",     label:"기술검토/자료",  icon:"🔧", color:"#7C3AED" },
+  { id:"contract", label:"계약/PO",       icon:"📝", color:"#D97706" },
+  { id:"internal", label:"내부 협의/보고", icon:"🏢", color:"#DB2777" },
+  { id:"etc",      label:"기타",          icon:"📌", color:"#6B7280" },
+];
+const ACTION_CAT_MAP = Object.fromEntries(ACTION_CATEGORIES.map(c=>[c.id,c]));
+// 제목 키워드로 유형 추정 — 위에서부터 먼저 맞는 규칙 적용, 없으면 기타
+const ACTION_CAT_RULES = [
+  ["internal", /내부|보고|승인|품의|결재|협의|공유|인수인계|배정/],
+  ["contract", /계약|발주|법무|납기|납품|(?<![A-Za-z])(PO|NDA|MOU)(?![a-z])/],
+  ["meeting",  /미팅|방문|면담|출장|통화|전화|화상|발표|킥오프|로드쇼|식사|안부|연락|회의/],
+  ["quote",    /견적|제안|입찰|가격|단가|(?<![A-Za-z])(RFQ|Quot|Proposal|Bid)/i],
+  ["sample",   /샘플|시험|테스트|시료|시생산|평가|인증|(?<![A-Za-z])Test/i],
+  ["tech",     /기술|스펙|사양|도면|자료|검토|분석|조사|파악|Q&A|ROI|설계|Spec/i],
+];
+const guessActionCategory = (title) => {
+  const t = String(title||"");
+  for (const [id, re] of ACTION_CAT_RULES) if (re.test(t)) return id;
+  return "etc";
+};
+const actionCat = (a) => ACTION_CAT_MAP[a?.category] || ACTION_CAT_MAP[guessActionCategory(a?.title)];
+
 // ── 액션 템플릿 데이터 ──
 const ACTION_TEMPLATES = [
   {
@@ -3574,7 +3601,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
     const newActions = selTmpl.actions.map(a => ({
       id: uid(), oppId: selOpp,
       clientId: opp?.accountId || "",
-      title: a.title, owner, priority: a.priority,
+      title: a.title, owner, priority: a.priority, category: a.category || guessActionCategory(a.title),
       dueDate: addDays(baseDate, a.dayOffset), done: false,
     }));
     onSave(newActions);
@@ -3638,12 +3665,14 @@ function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
   const initOppId = defaultOppId || action?.oppId || safeOpps[0]?.id || "";
   const [f,sF] = useState(action
     ? {...action, oppId: action.oppId||initOppId}
-    : { title:"", oppId:initOppId, clientId:"", owner:"", dueDate:"", priority:"중간", done:false, note:"" }
+    : { title:"", oppId:initOppId, clientId:"", owner:"", dueDate:"", priority:"중간", done:false, note:"", category:"" }
   );
+  const [catTouched, setCatTouched] = useState(!!action?.category);
   const s = k => v => sF(p=>({...p,[k]:v}));
+  const setTitle = v => sF(p=>({ ...p, title:v, category: catTouched ? p.category : (v.trim() ? guessActionCategory(v) : "") }));
 
   return <Modal title={action?"액션 수정":"액션 추가"} onClose={onClose}>
-    <Inp label="액션 내용" value={f.title} onChange={s("title")} placeholder="예: 견적서 제출, 기술 자료 발송"/>
+    <Inp label="액션 내용" value={f.title} onChange={setTitle} placeholder="예: 견적서 제출, 기술 자료 발송"/>
     {!defaultOppId && safeOpps.length > 0 && (
       <Sel label="영업기회" value={f.oppId}
         onChange={v=>sF(p=>({...p, oppId:v, clientId:safeOpps.find(o=>o.id===v)?.accountId||""}))}
@@ -3654,11 +3683,15 @@ function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
       <Inp label="담당자" value={f.owner} onChange={s("owner")} placeholder="이름"/>
       <Inp label="마감일" type="date" value={f.dueDate} onChange={s("dueDate")}/>
       <Sel label="우선순위" value={f.priority} onChange={s("priority")} options={["높음","중간","낮음"]}/>
+      <Sel label={catTouched ? "업무 유형" : "업무 유형 (제목 기반 자동 분류)"} value={f.category||guessActionCategory(f.title)}
+        onChange={v=>{ setCatTouched(true); sF(p=>({...p, category:v})); }}
+        options={ACTION_CATEGORIES.map(c=>({value:c.id,label:`${c.icon} ${c.label}`}))}
+      />
     </div>
     <Inp label="진행 메모 (선택)" value={f.note||""} onChange={s("note")} multiline placeholder="진행 상황, 참고사항 등"/>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>취소</Btn>
-      <Btn onClick={()=>{ if(!f.title.trim()) return; onSave({...f, id:action?.id||uid()}); }}>저장</Btn>
+      <Btn onClick={()=>{ if(!f.title.trim()) return; onSave({...f, category: f.category||guessActionCategory(f.title), id:action?.id||uid()}); }}>저장</Btn>
     </div>
   </Modal>;
 }
@@ -3669,8 +3702,20 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
   const [filter,   sF]  = useState("전체");
   const [dateFilter,sDF]= useState("전체"); // 전체|오늘|이번주|기한초과
   const [ownerF,   sOF] = useState("전체");
+  const [catF,     sCF] = useState("전체");
 
   const owners = ["전체",...new Set(actions.map(a=>a.owner).filter(Boolean))];
+
+  // 기존 액션(유형 미저장)을 제목 기반으로 일괄 분류
+  const backfillCats = () => {
+    const targets = actions.filter(a => !a.category);
+    if (targets.length === 0) { window.alert("이미 모든 액션에 업무 유형이 지정되어 있습니다."); return; }
+    const cnt = {};
+    targets.forEach(a => { const id = guessActionCategory(a.title); cnt[id] = (cnt[id]||0) + 1; });
+    const summary = ACTION_CATEGORIES.filter(c=>cnt[c.id]).map(c=>`${c.icon} ${c.label}: ${cnt[c.id]}건`).join("\n");
+    if (!window.confirm(`업무 유형이 없는 액션 ${targets.length}건을 제목 기준으로 자동 분류합니다.\n\n${summary}\n\n판단이 안 되는 항목은 '기타'로 지정됩니다. 진행할까요?`)) return;
+    onUpdate(prev => prev.map(a => a.category ? a : { ...a, category: guessActionCategory(a.title) }));
+  };
 
   const todayStr   = today();
   const weekEnd    = (() => { const d = new Date(); d.setDate(d.getDate() + (7 - d.getDay())); return d.toISOString().split("T")[0]; })();
@@ -3716,7 +3761,11 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
       if (dateFilter==="기한초과") return !a.done && a.dueDate && a.dueDate < todayStr;
       return true;
     })
-    .filter(a => ownerF==="전체" ? true : a.owner===ownerF)
+    .filter(a => ownerF==="전체" ? true : a.owner===ownerF);
+  const catCount = {};
+  list.forEach(a => { const id = actionCat(a).id; catCount[id] = (catCount[id]||0) + 1; });
+  const listSorted = list
+    .filter(a => catF==="전체" ? true : actionCat(a).id===catF)
     .sort((a,b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
       if (isLate(a.dueDate) && !isLate(b.dueDate)) return -1;
@@ -3769,15 +3818,28 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
         ))}
       </div>
       <div style={{ display:"flex", gap:8 }}>
+        <Btn variant="ghost" onClick={backfillCats}>🏷 유형 자동 분류</Btn>
         <Btn variant="ghost" onClick={()=>sTM(true)}>📋 템플릿 적용</Btn>
         <Btn onClick={()=>sM("add")}>{"+ 액션 추가"}</Btn>
       </div>
     </div>
 
+    {/* 업무 유형 필터 */}
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+      {[{id:"전체",label:"전체 유형",icon:"",color:C.accent}, ...ACTION_CATEGORIES].map(c=>{
+        const n = c.id==="전체" ? list.length : (catCount[c.id]||0);
+        const on = catF===c.id;
+        return <button key={c.id} onClick={()=>sCF(c.id)} style={{ padding:"5px 12px", borderRadius:20, fontSize:13, fontWeight:on?700:500, cursor:"pointer", fontFamily:"inherit", border:`1px solid ${on?c.color:C.border}`, background:on?`${c.color}20`:"transparent", color:on?c.color:C.textMuted, opacity:n===0&&!on?.55:1 }}>
+          {c.icon} {c.label} <span style={{ fontWeight:800 }}>{n}</span>
+        </button>;
+      })}
+    </div>
+
     {/* Action list */}
     <div style={{ display:"grid", gap:8 }}>
-      {list.map(a=>{
+      {listSorted.map(a=>{
         const opp = opps.find(o=>o.id===a.oppId)||{};
+        const cat = actionCat(a);
         const aCl = clients.find(c=>String(c.id)===String(opp.accountId))||{};
         const ov  = !a.done && isLate(a.dueDate);
         const isToday = !a.done && a.dueDate === todayStr;
@@ -3790,6 +3852,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:14, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none", marginBottom:2 }}>{a.title}</div>
               <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <span style={{ fontSize:12, fontWeight:700, color:cat.color, background:`${cat.color}18`, padding:"1px 9px", borderRadius:6 }}>{cat.icon} {cat.label}</span>
                 <span style={{ fontSize:13, fontWeight:700, color:C.text, background:C.surfaceUp, border:`1px solid ${C.border}`, padding:"1px 9px", borderRadius:6 }}>🏢 {aCl.name||"고객사 미지정"}</span>
                 {opp.id
                   ? <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:"inherit", fontSize:13, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</button>
