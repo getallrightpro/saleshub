@@ -282,7 +282,7 @@ const INIT_GOALS = {
   "2025": { Q1:0, Q2:0, Q3:0, Q4:0 },
   "2026": { Q1:0, Q2:0, Q3:0, Q4:0 },
 };
-const fmt    = n => n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : `${(n/10000).toFixed(0)}만`;
+const fmt    = n => !n ? "–" : n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : `${(n/10000).toFixed(0)}만`;
 const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const today  = () => localDate(); // 한국시간(로컬) 기준 날짜
 const isLate = d  => d && d < today();
@@ -446,7 +446,7 @@ function Sel({ label, value, onChange, options=[] }) {
 function Btn({ children, onClick, variant="primary", size="md", style:sty={} }) {
   const [h,sH]=useState(false);
   const base={ border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:size==="sm"?12:14, padding:size==="sm"?"5px 12px":"10px 20px", transition:"all .15s", fontFamily:"inherit", ...sty };
-  const V={ primary:{background:h?C.accentHover:C.accent,color:C.btnText}, ghost:{background:h?C.surfaceUp:"transparent",color:C.textMuted,border:`1px solid ${C.border}`}, danger:{background:C.red,color:C.btnText,filter:h?"brightness(1.12)":"none"}, success:{background:C.green,color:C.btnText,filter:h?"brightness(1.12)":"none"} };
+  const V={ primary:{background:h?C.accentHover:C.accent,color:C.btnText}, ghost:{background:h?C.surfaceUp:"transparent",color:C.textMuted,border:`1px solid ${C.border}`}, danger:size==="sm"?{background:h?C.red:"transparent",color:h?C.btnText:C.red,border:`1px solid ${h?C.red:C.red+"55"}`}:{background:C.red,color:C.btnText,filter:h?"brightness(1.12)":"none"}, success:{background:C.green,color:C.btnText,filter:h?"brightness(1.12)":"none"} };
   return <button onMouseEnter={()=>sH(true)} onMouseLeave={()=>sH(false)} onClick={onClick} style={{...base,...V[variant]}}>{children}</button>;
 }
 
@@ -3312,17 +3312,12 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
                 <button onClick={()=>{ if(window.confirm(`"${c.name}"을 아카이브 하시겠습니까?\n담당자, 히스토리, 파일 등 모든 정보가 함께 보관됩니다.`)) onArchiveClient(c); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:13, padding:"2px 6px", borderRadius:4 }} title="아카이브">📦</button>
               </div>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
-              {[
-                {label:"담당자",   val:d.contacts?.length||0,  color:(d.contacts?.length)?C.accent:C.textDim},
-                {label:"히스토리", val:d.history?.length||0,   color:(d.history?.length)?C.yellow:C.textDim},
-                {label:"파일",     val:d.files?.length||0,     color:(d.files?.length)?C.green:C.textDim},
-                {label:"영업기회", val:cOpps.length,           color:cOpps.length?C.purple:C.textDim},
-              ].map(it=><div key={it.label} style={{ background:C.surfaceUp, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
-                <div style={{ fontSize:16, fontWeight:800, color:it.color }}>{it.val}</div>
-                <div style={{ fontSize:12, color:C.textMuted }}>{it.label}</div>
-              </div>)}
-            </div>
+            {(()=>{
+              const st=[["담당자",d.contacts?.length||0,C.accent],["히스토리",d.history?.length||0,C.yellow],["파일",d.files?.length||0,C.green],["영업기회",cOpps.length,C.purple]].filter(x=>x[1]>0);
+              return <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginBottom:12, fontSize:13, color:C.textMuted, minHeight:20 }}>
+                {st.length===0 ? <span style={{ color:C.textDim }}>등록된 정보 없음</span> : st.map(x=><span key={x[0]}>{x[0]} <b style={{ color:x[2], fontSize:15 }}>{x[1]}</b></span>)}
+              </div>;
+            })()}
             {p?<div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10 }}>
               <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:12, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
@@ -3966,7 +3961,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
         <span style={{ width:1, height:20, background:C.border }}/>
         {/* Owner filter */}
         {owners.map(o=>(
-          <button key={o} onClick={()=>sOF(o)} style={{ padding:"5px 12px", borderRadius:20, border:`1px solid ${ownerF===o?C.yellow:C.border}`, background:ownerF===o?C.yellowSoft:"transparent", color:ownerF===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{o}</button>
+          <button key={o} onClick={()=>sOF(o)} style={{ padding:"5px 12px", borderRadius:20, border:`1px solid ${ownerF===o?C.accent:C.border}`, background:ownerF===o?C.accentSoft:"transparent", color:ownerF===o?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600 }}>{o}</button>
         ))}
       </div>
       <div style={{ display:"flex", gap:8 }}>
@@ -4221,7 +4216,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
                     <div style={{ ...td, fontWeight:700 }}>{cl.name||"—"}</div>
                     <div style={{ ...td, justifyContent:"flex-start", textAlign:"left" }}>
                       <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)} style={{ background:"none", border:"none", cursor:"pointer", padding:0, fontFamily:"inherit", textAlign:"left" }}>
-                        <span style={{ fontSize:16, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{o.name}</span>
+                        <span style={{ fontSize:16, fontWeight:700, color:C.text, textDecoration:"underline", textDecorationColor:C.accent, textDecorationThickness:"1.5px", textUnderlineOffset:4 }}>{o.name}</span>
                       </button>
                     </div>
                     <div style={{ ...td, fontWeight:800 }}>{fmt(o.value)}</div>
@@ -4354,7 +4349,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
                           <div style={{ minWidth:0 }}>
                             <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)}
                               style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                              <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</div>
+                              <div style={{ fontSize:18, fontWeight:700, color:C.text, textDecoration:"underline", textDecorationColor:C.accent, textDecorationThickness:"1.5px", textUnderlineOffset:4 }}>{opp.name}</div>
                             </button>
                             <div style={{ fontSize:15, fontWeight:600, color:C.text, marginTop:2 }}>{cl.name} <span style={{ color:C.textMuted, fontWeight:500 }}>· {opp.owner} 담당</span></div>
                           </div>
@@ -4371,10 +4366,10 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
                       </div>
                       <div>
                       <div style={{ display:"grid", gap:6 }}>
-                        {weekStageChanges.map(h => {
+                        {weekStageChanges.map((h, hi) => {
                           const sc = STAGE_MAP[h.stage] || {};
                           return (
-                            <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                            <div key={h.id ?? `${h.date}-${h.stage}-${hi}`} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                               <div style={{ minWidth:38, height:22, padding:"0 6px", borderRadius:6, background:`${sc.color||C.accent}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
                                 <span style={{ fontSize:11, fontWeight:800, color:sc.color||C.accent }}>단계</span>
                               </div>
@@ -4480,17 +4475,17 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
                             <div style={{ width:30, height:30, borderRadius:8, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.green }}>{client.name[0]}</div>
                             <button onClick={()=>onNavigateToClient&&onNavigateToClient(client)}
                               style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                              <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{client.name}</div>
+                              <div style={{ fontSize:18, fontWeight:700, color:C.text, textDecoration:"underline", textDecorationColor:C.accent, textDecorationThickness:"1.5px", textUnderlineOffset:4 }}>{client.name}</div>
                               <div style={{ fontSize:15, color:C.textMuted }}>{client.industry} · {client.owner} 담당</div>
                             </button>
                           </div>
                           <span style={{ fontSize:12, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{weekHist.length}건</span>
                         </div>
                         <div style={{ display:"grid", gap:6 }}>
-                          {weekHist.map(h => {
+                          {weekHist.map((h, hi) => {
                             const tc = TYPE_CFG[h.type] || TYPE_CFG["기타"];
                             return (
-                              <div key={h.id} style={{ display:"flex", gap:8, alignItems:"flex-start", paddingLeft:4 }}>
+                              <div key={h.id ?? `${h.date}-${h.type||h.stage}-${hi}`} style={{ display:"flex", gap:8, alignItems:"flex-start", paddingLeft:4 }}>
                                 <span style={{ fontSize:13, flexShrink:0 }}>{tc.icon}</span>
                                 <div style={{ flex:1 }}>
                                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -4555,7 +4550,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
                       <div style={{ minWidth:0 }}>
                         <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)} style={{ background:"none", border:"none", cursor:"pointer", padding:0, textAlign:"left", fontFamily:"inherit" }}>
-                          <div style={{ fontSize:18, fontWeight:700, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{o.name}</div>
+                          <div style={{ fontSize:18, fontWeight:700, color:C.text, textDecoration:"underline", textDecorationColor:C.accent, textDecorationThickness:"1.5px", textUnderlineOffset:4 }}>{o.name}</div>
                         </button>
                         <div style={{ fontSize:15, fontWeight:600, color:C.text, marginTop:2 }}>{cl.name} <span style={{ color:C.textMuted, fontWeight:500 }}>· {o.owner} 담당</span></div>
                       </div>
