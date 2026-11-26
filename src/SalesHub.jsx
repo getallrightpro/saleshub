@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { MsalProvider, useMsal, useIsAuthenticated } from "@azure/msal-react";
 
@@ -31,23 +31,37 @@ const sbGet = async (table) => {
   }
   return res.json();
 };
+// 저장 실패 보관소 — 실패한 항목을 기억해 두었다가 "다시 시도"로 재전송
+const sbFailed = new Map(); // "table|id" → { op, table, id, data }
+const sbRun = async (op, table, id, data) => {
+  const key = `${table}|${id}`;
+  try {
+    const res = op === "upsert"
+      ? await fetch(`${SB_URL}/rest/v1/${table}`, { method:"POST", headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ id, data }) })
+      : await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method:"DELETE", headers:sbHeaders });
+    if (!res.ok) {
+      const err = await res.text().catch(()=>"");
+      throw new Error(`${res.status} ${String(err).slice(0,120)}`);
+    }
+    sbFailed.delete(key);
+  } catch (e) {
+    console.error(`[sb ${op}:${table}]`, e);
+    sbFailed.set(key, { op, table, id, data });
+    throw new Error(`[DB] ${table} 저장 실패: ${e.message}`);
+  }
+};
 const sbUpsert = async (table, id, data) => {
   if (!id || data === null || data === undefined) {
     console.warn(`[sbUpsert:${table}] id 또는 data가 없어 저장 건너뜀`, { id, data });
     return;
   }
-  const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
-    method:"POST",
-    headers:{ ...sbHeaders, "Prefer":"resolution=merge-duplicates" },
-    body: JSON.stringify({ id, data }),
-  });
-  if (!res.ok) {
-    const err = await res.text().catch(()=>"");
-    console.error(`[sbUpsert:${table}] ${res.status}: ${err}`);
-  }
+  return sbRun("upsert", table, id, data);
 };
-const sbDelete = async (table, id) => {
-  await fetch(`${SB_URL}/rest/v1/${table}?id=eq.${id}`, { method:"DELETE", headers:sbHeaders });
+const sbDelete = (table, id) => sbRun("delete", table, id);
+const retrySbFailed = async () => {
+  for (const it of [...sbFailed.values()]) {
+    try { await sbRun(it.op, it.table, it.id, it.data); } catch {}
+  }
 };
 // 연결 상태 확인
 const sbPing = async () => {
@@ -65,13 +79,13 @@ const THEMES = {
     // 포인트
     accent:"#2563EB", accentSoft:"rgba(37,99,235,0.07)", accentGlow:"rgba(37,99,235,0.18)",
     // 시맨틱
-    green:"#16A34A", greenSoft:"rgba(22,163,74,0.08)",
-    yellow:"#D97706", yellowSoft:"rgba(217,119,6,0.08)",
-    red:"#DC2626",   redSoft:"rgba(220,38,38,0.08)",
+    green:"#15803D", greenSoft:"rgba(21,128,61,0.08)",
+    yellow:"#B45309", yellowSoft:"rgba(180,83,9,0.08)",
+    red:"#C62828",   redSoft:"rgba(198,40,40,0.08)",
     purple:"#64748B", purpleSoft:"rgba(100,116,139,0.08)",
     cyan:"#475569",   cyanSoft:"rgba(71,85,105,0.08)",
     // 텍스트
-    text:"#1A202C", textMuted:"#6B7280", textDim:"#9CA3AF",
+    text:"#1A202C", textMuted:"#5B6472", textDim:"#646C79",
     // 컴포넌트
     navBg:"#FFFFFF", navBorder:"#E4E6EA",
     inputBg:"#F8F9FB",
@@ -80,7 +94,7 @@ const THEMES = {
     shadowHover:"0 0 0 2px rgba(37,99,235,0.18), 0 8px 24px rgba(0,0,0,.10)",
     shadowModal:"0 24px 60px rgba(0,0,0,.18)",
     // 버튼 텍스트
-    btnText:"#FFFFFF",
+    btnText:"#FFFFFF", accentHover:"#1D4ED8",
   },
   dark: {
     // 배경 레이어 — GitHub Dark 수준
@@ -104,7 +118,7 @@ const THEMES = {
     shadow:"0 1px 4px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3)",
     shadowHover:"0 0 0 2px rgba(88,166,255,0.30), 0 8px 24px rgba(0,0,0,.5)",
     shadowModal:"0 24px 60px rgba(0,0,0,.6)",
-    btnText:"#FFFFFF",
+    btnText:"#0D1117", accentHover:"#79B8FF", // 다크: 밝은 배경 버튼 위에는 어두운 글씨 (대비 7:1)
   },
 };
 
@@ -130,6 +144,15 @@ const useTheme = () => {
 };
 
 // ─── Theme Toggle Button ──────────────────────────────────────────────────────
+const GLOBAL_A11Y_CSS = (accent) => `
+  button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [role="button"]:focus-visible {
+    outline: 2px solid ${accent} !important; outline-offset: 2px !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  }
+`;
+
 function ThemeToggle() {
   const [theme, setT] = useTheme();
   const isDark = theme === "dark";
@@ -257,7 +280,8 @@ const INIT_GOALS = {
   "2026": { Q1:0, Q2:0, Q3:0, Q4:0 },
 };
 const fmt    = n => n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : `${(n/10000).toFixed(0)}만`;
-const today  = () => new Date().toISOString().split("T")[0];
+const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const today  = () => localDate(); // 한국시간(로컬) 기준 날짜
 const isLate = d  => d && d < today();
 const uid    = () => Math.random().toString(36).slice(2,9);
 
@@ -279,13 +303,13 @@ function ProbBar({ value, stage }) {
     <div style={{ flex:1, height:4, background:C.border, borderRadius:2, overflow:"hidden" }}>
       <div style={{ width:`${value}%`, height:"100%", background:sc||C.accent, borderRadius:2 }}/>
     </div>
-    <span style={{ fontSize:11, color:sc||C.accent, fontWeight:700, minWidth:34 }}>{value}%</span>
+    <span style={{ fontSize:12, color:sc||C.accent, fontWeight:700, minWidth:34 }}>{value}%</span>
   </div>;
 }
 
 function Card({ children, style={}, onClick }) {
   const [h,sH] = useState(false);
-  return <div onClick={onClick} onMouseEnter={()=>onClick&&sH(true)} onMouseLeave={()=>sH(false)} style={{
+  return <div role="button" tabIndex={0} onClick={onClick} role={onClick?"button":undefined} tabIndex={onClick?0:undefined} onMouseEnter={()=>onClick&&sH(true)} onMouseLeave={()=>sH(false)} style={{
     background:C.surface, border:`1px solid ${h?C.accent:C.border}`, borderRadius:12, padding:"18px 22px",
     transition:"border-color .2s, box-shadow .2s, background .3s", cursor:onClick?"pointer":"default",
     boxShadow:h?C.shadowHover:C.shadow,
@@ -293,12 +317,49 @@ function Card({ children, style={}, onClick }) {
   }}>{children}</div>;
 }
 
+const _modalStack = [];
 function Modal({ title, onClose, children }) {
-  return <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.45)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }} onClick={onClose}>
-    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:700, maxHeight:"88vh", overflow:"auto", padding:"28px 32px", boxShadow:C.shadowModal }} onClick={e=>e.stopPropagation()}>
+  const dirty  = useRef(false);
+  const boxRef = useRef(null);
+  const tryClose = () => {
+    if (dirty.current && !window.confirm("입력 중인 내용이 있습니다.\n저장하지 않고 닫을까요?")) return;
+    onClose();
+  };
+  const closeRef = useRef(tryClose);
+  closeRef.current = tryClose;
+
+  useEffect(() => {
+    const token = {};
+    _modalStack.push(token);
+    const prevFocus = document.activeElement;
+    const box = boxRef.current;
+    if (box && !box.contains(document.activeElement)) box.focus();
+    const onKey = (e) => {
+      if (_modalStack[_modalStack.length - 1] !== token) return;
+      if (e.key === "Escape") { e.stopPropagation(); closeRef.current(); return; }
+      if (e.key === "Tab" && box) {
+        const f = box.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])');
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === box)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const i = _modalStack.indexOf(token); if (i >= 0) _modalStack.splice(i, 1);
+      try { prevFocus && prevFocus.focus && prevFocus.focus(); } catch {}
+    };
+  }, []);
+
+  // 바깥 영역 클릭으로는 닫히지 않음 (작성 중 내용 보호) — Esc 또는 ✕ 사용
+  return <div style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.45)", zIndex:500, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+    <div ref={boxRef} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onInput={()=>{ dirty.current = true; }}
+      style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, width:"100%", maxWidth:700, maxHeight:"88vh", overflow:"auto", padding:"28px 32px", boxShadow:C.shadowModal, outline:"none" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
         <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:C.text }}>{title}</h2>
-        <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20, padding:4 }}>✕</button>
+        <button onClick={tryClose} aria-label="닫기" style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20, padding:4 }} aria-label="닫기">✕</button>
       </div>
       {children}
     </div>
@@ -306,6 +367,7 @@ function Modal({ title, onClose, children }) {
 }
 
 function Inp({ label, value, onChange, type="text", multiline, placeholder, minHeight }) {
+  const fid = useRef("f" + Math.random().toString(36).slice(2, 9)).current;
   const [composing, setComposing] = useState(false);
   const [localVal,  setLocalVal]  = useState(value);
 
@@ -324,9 +386,10 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
   };
 
   return <div style={{ marginBottom:16 }}>
-    {label && <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
+    {label && <label htmlFor={fid} style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
     {multiline ? (
       <textarea
+        id={fid}
         value={localVal}
         onChange={e => {
           setLocalVal(e.target.value);
@@ -343,6 +406,7 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
       />
     ) : (
       <input
+        id={fid}
         type={type}
         value={localVal}
         onChange={e => {
@@ -363,9 +427,10 @@ function Inp({ label, value, onChange, type="text", multiline, placeholder, minH
 }
 
 function Sel({ label, value, onChange, options=[] }) {
+  const fid = useRef("s" + Math.random().toString(36).slice(2, 9)).current;
   return <div style={{ marginBottom:16 }}>
-    {label&&<label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
-    <select value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
+    {label&&<label htmlFor={fid} style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>{label}</label>}
+    <select id={fid} value={value} onChange={e=>onChange(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
       {(options||[]).map((o,i)=>{
         const val = typeof o === "object" ? (o.value ?? "") : o;
         const lbl = typeof o === "object" ? (o.label ?? o.value ?? "") : o;
@@ -378,12 +443,12 @@ function Sel({ label, value, onChange, options=[] }) {
 function Btn({ children, onClick, variant="primary", size="md", style:sty={} }) {
   const [h,sH]=useState(false);
   const base={ border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:size==="sm"?12:14, padding:size==="sm"?"5px 12px":"10px 20px", transition:"all .15s", fontFamily:"inherit", ...sty };
-  const V={ primary:{background:h?"#2D5FD4":C.accent,color:"#fff"}, ghost:{background:h?"#F1F5F9":"transparent",color:C.textMuted,border:`1px solid ${C.border}`}, danger:{background:h?"#DC2626":C.red,color:"#fff"}, success:{background:h?"#059669":C.green,color:"#fff"} };
+  const V={ primary:{background:h?C.accentHover:C.accent,color:C.btnText}, ghost:{background:h?C.surfaceUp:"transparent",color:C.textMuted,border:`1px solid ${C.border}`}, danger:{background:C.red,color:C.btnText,filter:h?"brightness(1.12)":"none"}, success:{background:C.green,color:C.btnText,filter:h?"brightness(1.12)":"none"} };
   return <button onMouseEnter={()=>sH(true)} onMouseLeave={()=>sH(false)} onClick={onClick} style={{...base,...V[variant]}}>{children}</button>;
 }
 
 function SL({ children }) {
-  return <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", marginBottom:12 }}>{children}</div>;
+  return <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", marginBottom:12 }}>{children}</div>;
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -443,7 +508,7 @@ function ClientSearchInput({ clients, value, onChange }) {
 
   return (
     <div style={{ position:"relative", marginBottom:16 }}>
-      <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사</label>
+      <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사</label>
       {/* Input box */}
       <div style={{ display:"flex", alignItems:"center", background:C.surfaceUp, border:`1px solid ${focused?C.accent:C.border}`, borderRadius:8, padding:"10px 14px", gap:8, transition:"border-color .15s" }}>
         <span style={{ fontSize:13, color:C.textMuted }}>🔍</span>
@@ -456,7 +521,7 @@ function ClientSearchInput({ clients, value, onChange }) {
           style={{ background:"none", border:"none", outline:"none", fontSize:14, color:C.text, width:"100%", fontFamily:"inherit" }}
         />
         {selected && !open && (
-          <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"2px 8px", borderRadius:8, fontWeight:700, flexShrink:0 }}>
+          <span style={{ fontSize:12, background:C.accentSoft, color:C.accent, padding:"2px 8px", borderRadius:8, fontWeight:700, flexShrink:0 }}>
             {selected.industry}
           </span>
         )}
@@ -479,7 +544,7 @@ function ClientSearchInput({ clients, value, onChange }) {
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{c.name}</div>
-                  <div style={{ fontSize:11, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
                 </div>
                 {String(c.id)===String(value) && <span style={{ fontSize:12, color:C.accent }}>✓</span>}
               </div>
@@ -516,8 +581,8 @@ function StakeholderEditor({ stakeholders=[], onChange }) {
   return (
     <div style={{ marginBottom:16 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-        <label style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>의사결정 구조</label>
-        {!adding && <button onClick={()=>setAdding(true)} style={{ fontSize:11, color:C.accent, background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>+ 추가</button>}
+        <label style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>의사결정 구조</label>
+        {!adding && <button onClick={()=>setAdding(true)} style={{ fontSize:12, color:C.accent, background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>+ 추가</button>}
       </div>
 
       {/* 기존 담당자 목록 */}
@@ -532,16 +597,16 @@ function StakeholderEditor({ stakeholders=[], onChange }) {
                 {/* 이름/직책 */}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{s.name}</div>
-                  <div style={{ fontSize:11, color:C.textMuted }}>{s.title}</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{s.title}</div>
                 </div>
                 {/* 역할 뱃지 */}
-                <span style={{ fontSize:10, background:`${aff.color}12`, color:aff.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>{s.role}</span>
+                <span style={{ fontSize:12, background:`${aff.color}12`, color:aff.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>{s.role}</span>
                 {/* 우호도 변경 */}
                 <select value={s.affinity} onChange={e=>update(s.id,"affinity",e.target.value)}
-                  style={{ fontSize:11, background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 6px", color:C.text, outline:"none", cursor:"pointer" }}>
+                  style={{ fontSize:12, background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 6px", color:C.text, outline:"none", cursor:"pointer" }}>
                   {STAKEHOLDER_AFFINITY.map(a=><option key={a.id} value={a.id}>{a.icon} {a.id}</option>)}
                 </select>
-                <button onClick={()=>remove(s.id)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:13, flexShrink:0 }}>✕</button>
+                <button onClick={()=>remove(s.id)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:13, flexShrink:0 }} aria-label="닫기">✕</button>
               </div>
             );
           })}
@@ -559,24 +624,24 @@ function StakeholderEditor({ stakeholders=[], onChange }) {
         <div style={{ padding:"12px 14px", background:C.accentSoft, border:`1px solid ${C.accent}30`, borderRadius:10 }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" }}>
             <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>이름</label>
+              <label style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>이름</label>
               <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="홍길동"
                 autoFocus style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box" }}/>
             </div>
             <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>직책</label>
+              <label style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>직책</label>
               <input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="구매팀장"
                 style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none", boxSizing:"border-box" }}/>
             </div>
             <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>역할</label>
+              <label style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>역할</label>
               <select value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))}
                 style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }}>
                 {STAKEHOLDER_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>우호도</label>
+              <label style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", display:"block", marginBottom:5 }}>우호도</label>
               <select value={form.affinity} onChange={e=>setForm(p=>({...p,affinity:e.target.value}))}
                 style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }}>
                 {STAKEHOLDER_AFFINITY.map(a=><option key={a.id} value={a.id}>{a.icon} {a.id}</option>)}
@@ -630,7 +695,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
 
       {/* 담당자 */}
       <div style={{ marginBottom:16 }}>
-        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자 (강원에너지)</label>
+        <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>담당자 (강원에너지)</label>
         {users.length > 0 ? (
           <select value={f.owner} onChange={e=>sF(p=>({...p,owner:e.target.value}))} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
             <option value="">— 선택 —</option>
@@ -649,7 +714,7 @@ function OppFormModal({ opp, clients, onSave, onClose }) {
 
       {/* 영업기회 유형 */}
       <div style={{ gridColumn:"1/-1", marginBottom:16 }}>
-        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회 유형</label>
+        <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회 유형</label>
         <div style={{ display:"flex", gap:8 }}>
           {OPP_TYPES.map(tp=>(
             <button key={tp.id} type="button" onClick={()=>sF(p=>({...p,oppType:tp.id}))}
@@ -747,13 +812,13 @@ function StageMoveModal({ opp, onSave, onClose }) {
           <span style={{ fontSize:18 }}>📌</span>
           <div>
             <div style={{ fontSize:14, fontWeight:700, color:C.red }}>손실 처리</div>
-            <div style={{ fontSize:11, color:C.textMuted }}>손실 사유와 Lesson Learned를 기록해 다음 영업에 활용하세요</div>
+            <div style={{ fontSize:12, color:C.textMuted }}>손실 사유와 Lesson Learned를 기록해 다음 영업에 활용하세요</div>
           </div>
         </div>
 
         {/* 손실 사유 선택 */}
         <div style={{ marginBottom:14 }}>
-          <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>손실 사유</label>
+          <label style={{ display:"block", fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>손실 사유</label>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {LOSS_REASONS.map(r=>(
               <button key={r} onClick={()=>setLR(r)} style={{
@@ -1007,15 +1072,15 @@ function ActivityModal({ act, onSave, onClose }) {
             <span style={{ fontSize:20 }}>✅</span>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:600, color:C.green }}>{uploadResult.name}</div>
-              <div style={{ fontSize:11, color:C.textMuted }}>
+              <div style={{ fontSize:12, color:C.textMuted }}>
                 {uploadResult.uploadPath || "Teams 업로드 완료"} · {uploadResult.uploadedAt}
               </div>
             </div>
             <a href={uploadResult.url} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize:11, color:C.accent, textDecoration:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
+              style={{ fontSize:12, color:C.accent, textDecoration:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
               열기
             </a>
-            <button onClick={()=>setUR(null)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:12 }}>✕</button>
+            <button onClick={()=>setUR(null)} style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:12 }} aria-label="닫기">✕</button>
           </div>
         ) : (
           <div>
@@ -1036,7 +1101,7 @@ function ActivityModal({ act, onSave, onClose }) {
               {teamsFile ? (
                 <div style={{ textAlign:"center" }}>
                   <div style={{ fontSize:13, fontWeight:700, color:C.accent }}>{teamsFile.name}</div>
-                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>
                     {(teamsFile.size/1024).toFixed(0)} KB · 클릭해서 다른 파일 선택
                   </div>
                 </div>
@@ -1045,7 +1110,7 @@ function ActivityModal({ act, onSave, onClose }) {
                   <div style={{ fontSize:13, fontWeight:600, color:draggingOver ? C.accent : C.text }}>
                     {draggingOver ? "여기에 놓으세요!" : "파일을 드래그하거나 클릭해서 선택"}
                   </div>
-                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>
                     .docx, .doc, .pdf 지원
                   </div>
                 </div>
@@ -1072,7 +1137,7 @@ function ActivityModal({ act, onSave, onClose }) {
             )}
 
             {/* 업로드 경로 안내 */}
-            <div style={{ fontSize:11, color:C.textDim, marginTop:8, textAlign:"center" }}>
+            <div style={{ fontSize:12, color:C.textDim, marginTop:8, textAlign:"center" }}>
               저장 위치: {TEAMS_CHANNEL_NAME} › {new Date(f.date||today()).getFullYear()} › {String(new Date(f.date||today()).getMonth()+1).padStart(2,"0")}월
             </div>
             {/* 에러 */}
@@ -1228,15 +1293,15 @@ function KpiGrid({ opp, stageCfg, weighted, onUpdate }) {
             onMouseLeave={e=>{ e.currentTarget.style.boxShadow="none"; }}
           >
             <div style={{ display:"flex", alignItems:"center", gap:4, marginBottom:6 }}>
-              <div style={{ fontSize:10, color:isBU&&buColor?buColor:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>{cell.label}</div>
+              <div style={{ fontSize:12, color:isBU&&buColor?buColor:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>{cell.label}</div>
               {cell.editable && editing!==cell.id && <span style={{ fontSize:9, color:C.textDim }}>✏</span>}
             </div>
             {editing===cell.id ? (
               <div onClick={e=>e.stopPropagation()}>
                 {cell.input}
                 <div style={{ display:"flex", gap:4, marginTop:6 }}>
-                  <button onClick={save} style={{ flex:1, padding:"3px", background:C.accent, color:"#fff", border:"none", borderRadius:4, fontSize:10, cursor:"pointer", fontWeight:700 }}>저장</button>
-                  <button onClick={()=>setEditing(null)} style={{ flex:1, padding:"3px", background:C.border, color:C.textMuted, border:"none", borderRadius:4, fontSize:10, cursor:"pointer" }}>취소</button>
+                  <button onClick={save} style={{ flex:1, padding:"3px", background:C.accent, color:"#fff", border:"none", borderRadius:4, fontSize:12, cursor:"pointer", fontWeight:700 }}>저장</button>
+                  <button onClick={()=>setEditing(null)} style={{ flex:1, padding:"3px", background:C.border, color:C.textMuted, border:"none", borderRadius:4, fontSize:12, cursor:"pointer" }}>취소</button>
                 </div>
               </div>
             ) : (
@@ -1261,10 +1326,10 @@ function StrategyEditor({ value, stageColor, tips, onSave, onCancel }) {
     <div>
       {/* Quick insert from tips */}
       <div style={{ marginBottom:10 }}>
-        <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>추천 전략에서 빠르게 추가:</div>
+        <div style={{ fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:600 }}>추천 전략에서 빠르게 추가:</div>
         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
           {tips.map((tip,i)=>(
-            <button key={i} onClick={()=>applyTip(tip)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${stageColor}30`, background:`${stageColor}08`, color:stageColor, fontSize:11, cursor:"pointer", fontWeight:500, textAlign:"left" }}>
+            <button key={i} onClick={()=>applyTip(tip)} style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${stageColor}30`, background:`${stageColor}08`, color:stageColor, fontSize:12, cursor:"pointer", fontWeight:500, textAlign:"left" }}>
               + {tip.length > 24 ? tip.slice(0,24)+"…" : tip}
             </button>
           ))}
@@ -1306,12 +1371,12 @@ function LossLessonEditor({ opp, onUpdate }) {
   return (
     <div style={{ background:C.surface, borderRadius:10, padding:"14px 16px", border:`1px solid ${C.border}` }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:editing?10:opp.lessonLearned?8:0 }}>
-        <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>
+        <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>
           💡 Lesson Learned
         </div>
         {!editing && (
           <button onClick={()=>{ setVal(opp.lessonLearned||""); setEditing(true); }}
-            style={{ fontSize:11, color:C.accent, background:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+            style={{ fontSize:12, color:C.accent, background:"none", border:`1px solid ${C.accent}30`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
             {opp.lessonLearned ? "수정" : "+ 작성"}
           </button>
         )}
@@ -1507,10 +1572,10 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             const isLost = opp.stage==="손실";
             return <div key={s.id} style={{ display:"flex", alignItems:"center", flex:i<ACTIVE.length-1?1:"none" }}>
               <div style={{ display:"flex", flexDirection:"column", alignItems:"center", minWidth:60 }}>
-                <div style={{ width:28, height:28, borderRadius:"50%", background:passed||active?(isLost&&!passed?C.textDim:s.color):"transparent", border:`2px solid ${passed||active?(isLost&&!passed?C.textDim:s.color):C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:passed||active?"#fff":C.textDim, transition:"all .3s" }}>
+                <div style={{ width:28, height:28, borderRadius:"50%", background:passed||active?(isLost&&!passed?C.textDim:s.color):"transparent", border:`2px solid ${passed||active?(isLost&&!passed?C.textDim:s.color):C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:passed||active?"#fff":C.textDim, transition:"all .3s" }}>
                   {passed&&!active?"✓":i+1}
                 </div>
-                <div style={{ fontSize:10, color:active?s.color:passed?C.textMuted:C.textDim, marginTop:5, fontWeight:active?700:400, whiteSpace:"nowrap" }}>{s.label}</div>
+                <div style={{ fontSize:12, color:active?s.color:passed?C.textMuted:C.textDim, marginTop:5, fontWeight:active?700:400, whiteSpace:"nowrap" }}>{s.label}</div>
               </div>
               {i<ACTIVE.length-1&&<div style={{ flex:1, height:2, background:passed?s.color:C.border, marginBottom:16, transition:"background .3s" }}/>}
             </div>;
@@ -1545,14 +1610,14 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <span style={{ fontSize:20 }}>📌</span>
             <div>
               <div style={{ fontSize:14, fontWeight:700, color:C.red }}>손실 처리된 딜</div>
-              <div style={{ fontSize:11, color:C.textMuted }}>손실일: {opp.lostAt||"—"}</div>
+              <div style={{ fontSize:12, color:C.textMuted }}>손실일: {opp.lostAt||"—"}</div>
             </div>
           </div>
 
           {/* 손실 사유 */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
             <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>손실 사유</div>
+              <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>손실 사유</div>
               {opp.lossReason ? (
                 <span style={{ fontSize:13, fontWeight:700, color:C.red }}>{opp.lossReason}</span>
               ) : (
@@ -1560,7 +1625,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               )}
             </div>
             <div style={{ background:C.surface, borderRadius:10, padding:"12px 16px", border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>상세 사유</div>
+              <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>상세 사유</div>
               <div style={{ fontSize:12, color:opp.lossDetail?C.text:C.textDim, lineHeight:1.6 }}>{opp.lossDetail||"미입력"}</div>
             </div>
           </div>
@@ -1572,7 +1637,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
       {editing?<div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
           <div style={{ marginBottom:16 }}>
-            <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>사업부</label>
+            <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>사업부</label>
             <select value={editForm.businessUnit} onChange={e=>setEF(p=>({...p,businessUnit:e.target.value}))} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
               {BUSINESS_UNITS.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}
             </select>
@@ -1583,8 +1648,8 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         {/* 영업기회 유형 — 관리자만 수정 가능 */}
         {isAdmin && (
           <div style={{ marginBottom:16 }}>
-            <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>
-              영업기회 유형 <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, marginLeft:4 }}>관리자</span>
+            <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:8, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>
+              영업기회 유형 <span style={{ fontSize:12, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, marginLeft:4 }}>관리자</span>
             </label>
             <div style={{ display:"flex", gap:8 }}>
               {OPP_TYPES.map(t=>(
@@ -1615,7 +1680,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             const buCfg = it.isBU  ? BUSINESS_UNITS.find(b=>b.id===it.val) : null;
             const color = tc?.color || buCfg?.color || C.textMuted;
             return <div key={it.label} style={{ background:tc||buCfg?`${color}10`:C.surface, border:`1px solid ${tc||buCfg?color+"40":C.border}`, borderRadius:10, padding:"12px 16px" }}>
-              <div style={{ fontSize:10, color:tc||buCfg?color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
+              <div style={{ fontSize:12, color:tc||buCfg?color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
               <div style={{ fontSize:13, fontWeight:tc||buCfg?700:400, color:tc||buCfg?color:it.val?C.text:C.textDim, display:"flex", alignItems:"center", gap:4 }}>
                 {tc&&<span>{tc.icon}</span>}{it.val||"—"}
               </div>
@@ -1626,14 +1691,14 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         {/* 경쟁사 */}
         {opp.competitors && (
           <div style={{ background:C.redSoft, border:`1px solid ${C.red}20`, borderRadius:10, padding:"12px 16px", marginBottom:12 }}>
-            <div style={{ fontSize:10, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>⚔ 경쟁사</div>
+            <div style={{ fontSize:12, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>⚔ 경쟁사</div>
             <div style={{ fontSize:13, color:C.text }}>{opp.competitors}</div>
           </div>
         )}
 
         {/* 의사결정 구조 — 개요에서 바로 편집 */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>🏛 의사결정 구조</div>
+          <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>🏛 의사결정 구조</div>
           <StakeholderEditor
             stakeholders={opp.stakeholders||[]}
             onChange={v=>update({ stakeholders:v })}
@@ -1643,7 +1708,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
         {/* 고객 요구사항 / Spec */}
         <div style={{ background:`${C.yellow}0D`, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-            <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>📋 고객 요구사항 / Spec</div>
+            <div style={{ fontSize:12, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase" }}>📋 고객 요구사항 / Spec</div>
           </div>
           {opp.clientRequirements ? (
             <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{opp.clientRequirements}</div>
@@ -1654,7 +1719,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
 
         {/* 영업 전략 메모 */}
         <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"16px 18px", marginBottom:12 }}>
-          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>💡 추진 전략</div>
+          <div style={{ fontSize:12, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>💡 추진 전략</div>
           <div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{opp.strategyNote||"—"}</div>
         </div>
 
@@ -1692,18 +1757,18 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                     <span style={{ fontSize:15, fontWeight:800, color:isActive?s.color:C.text }}>{s.label}</span>
-                    {isActive && <span style={{ fontSize:10, background:`${s.color}20`, color:s.color, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>현재 단계</span>}
+                    {isActive && <span style={{ fontSize:12, background:`${s.color}20`, color:s.color, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>현재 단계</span>}
                   </div>
-                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>목표 확률 {s.prob}% {histEntry?`· 진입: ${histEntry.date}`:""}</div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>목표 확률 {s.prob}% {histEntry?`· 진입: ${histEntry.date}`:""}</div>
                 </div>
                 <div style={{ display:"flex", gap:8, flexShrink:0 }}>
                   {/* 추천 전략 토글 */}
-                  <button onClick={()=>setShowTips(p=>({...p,[s.id]:!p[s.id]}))} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                  <button onClick={()=>setShowTips(p=>({...p,[s.id]:!p[s.id]}))} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
                     {tipsOpen ? "추천 접기 ▲" : "추천 전략 ▼"}
                   </button>
                   {/* 편집 버튼 */}
                   {!isEditing && (
-                    <button onClick={()=>setES(s.id)} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${isActive?s.color:C.border}`, background:isActive?`${s.color}10`:"transparent", color:isActive?s.color:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                    <button onClick={()=>setES(s.id)} style={{ padding:"5px 12px", borderRadius:8, border:`1px solid ${isActive?s.color:C.border}`, background:isActive?`${s.color}10`:"transparent", color:isActive?s.color:C.textMuted, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
                       ✏ {customStrat?"수정":"작성"}
                     </button>
                   )}
@@ -1713,7 +1778,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               {/* 추천 전략 (접을 수 있음) */}
               {tipsOpen && (
                 <div style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
-                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>📌 추천 전략 (참고용)</div>
+                  <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>📌 추천 전략 (참고용)</div>
                   <ul style={{ margin:0, padding:0, listStyle:"none", display:"grid", gap:6 }}>
                     {strat?.tips.map((tip,i)=>(
                       <li key={i} style={{ display:"flex", gap:8, fontSize:12, color:C.textMuted }}>
@@ -1728,7 +1793,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               {/* 담당자 작성 전략 */}
               {isEditing ? (
                 <div>
-                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>우리 팀 전략 작성</div>
+                  <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:8 }}>우리 팀 전략 작성</div>
                   <StrategyEditor
                     value={customStrat}
                     stageColor={s.color}
@@ -1744,7 +1809,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
                 <div>
                   {customStrat ? (
                     <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px" }}>
-                      <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>✍ 우리 팀 전략</div>
+                      <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>✍ 우리 팀 전략</div>
                       <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{customStrat}</div>
                     </div>
                   ) : (
@@ -1780,7 +1845,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
               <StagePill stage={h.stage} size="md"/>
               <span style={{ fontSize:12, color:C.textMuted }}>{h.date}</span>
-              <span style={{ fontSize:11, color:C.textDim }}>by {h.by}</span>
+              <span style={{ fontSize:12, color:C.textDim }}>by {h.by}</span>
             </div>
             {h.note&&<div style={{ fontSize:13, color:C.text, lineHeight:1.6, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>{h.note}</div>}
           </div>
@@ -1804,8 +1869,8 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{a.date}</span>
-              <span style={{ fontSize:11, background:C.surfaceUp, color:C.textMuted, padding:"3px 9px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
-              <span style={{ fontSize:11, color:C.textDim }}>by {a.by}</span>
+              <span style={{ fontSize:12, background:C.surfaceUp, color:C.textMuted, padding:"3px 9px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
+              <span style={{ fontSize:12, color:C.textDim }}>by {a.by}</span>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <Btn size="sm" variant="ghost" onClick={()=>setAM(a)}>{"수정"}</Btn>
@@ -1815,7 +1880,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}><ActivityBody a={a} size={14} showRequest={false}/></div>
           {a.clientRequest && (
             <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
-              <div style={{ fontSize:10, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
+              <div style={{ fontSize:12, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
               <div style={{ fontSize:13, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.clientRequest}</div>
             </div>
           )}
@@ -1824,10 +1889,10 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               <span style={{ fontSize:16 }}>📄</span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.teamsFile.name}</div>
-                <div style={{ fontSize:11, color:C.textMuted }}>{a.teamsFile.uploadPath || `Teams 외부활동보고서`} · {a.teamsFile.uploadedAt}</div>
+                <div style={{ fontSize:12, color:C.textMuted }}>{a.teamsFile.uploadPath || `Teams 외부활동보고서`} · {a.teamsFile.uploadedAt}</div>
               </div>
               <a href={a.teamsFile.url} target="_blank" rel="noopener noreferrer" download
-                style={{ fontSize:11, color:"#fff", background:C.accent, textDecoration:"none", borderRadius:6, padding:"4px 12px", flexShrink:0, fontWeight:600 }}>
+                style={{ fontSize:12, color:"#fff", background:C.accent, textDecoration:"none", borderRadius:6, padding:"4px 12px", flexShrink:0, fontWeight:600 }}>
                 다운로드
               </a>
             </div>
@@ -1848,7 +1913,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           <div style={{ width:40, height:40, borderRadius:8, background:`${FILE_CLR[f.type]||C.textMuted}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>{FILE_ICO[f.type]||"📁"}</div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:13, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div>
-            <div style={{ fontSize:11, color:C.textMuted, marginTop:3 }}>{f.type} · {f.date}</div>
+            <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>{f.type} · {f.date}</div>
           </div>
           <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:12, color:C.accent, textDecoration:"none", padding:"4px 10px", border:`1px solid ${C.accentGlow}`, borderRadius:6 }}>열기 ↗</a>
           <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`파일 "${f.name}"을 삭제하시겠습니까?`)) update({files:opp.files.filter(x=>x.id!==f.id)}); }}>삭제</Btn>
@@ -1886,20 +1951,20 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           return <div key={a.id} style={{ display:"flex", alignItems:"center", gap:14, background:C.surface, border:`1px solid ${ov?C.red+"40":a.done?C.border:C.border}`, borderRadius:10, padding:"13px 18px", opacity:a.done?.6:1, transition:"opacity .2s" }}>
             {/* 완료 체크박스 */}
             <button onClick={()=>onUpdateActions(prev=>prev.map(x=>x.id===a.id?{...x,done:!x.done}:x))}
-              style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11, transition:"all .15s" }}>
+              style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:12, transition:"all .15s" }}>
               {a.done?"✓":""}
             </button>
             {/* 내용 */}
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:600, color:a.done?C.textMuted:C.text, textDecoration:a.done?"line-through":"none" }}>{a.title}</div>
-              <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
+              <div style={{ fontSize:12, color:C.textMuted, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
                 {a.owner && <span>👤 {a.owner}</span>}
                 {a.dueDate && <span style={{ color:ov?C.red:C.textDim }}>📅 {ov?"⚠ ":""}{a.dueDate}</span>}
                 {a.note && <span style={{ color:C.textDim }}>· {a.note.slice(0,30)}{a.note.length>30?"…":""}</span>}
               </div>
             </div>
             {/* 우선순위 */}
-            <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700, flexShrink:0 }}>{a.priority}</span>
+            <span style={{ fontSize:12, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700, flexShrink:0 }}>{a.priority}</span>
             {/* 버튼 */}
             <div style={{ display:"flex", gap:6 }}>
               <Btn size="sm" variant="ghost" onClick={()=>setAM({...a, _editAction:true})}>수정</Btn>
@@ -1961,12 +2026,12 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
   return <div>
     {/* Toolbar */}
     <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8, marginBottom:12 }}>
-      <span style={{ fontSize:11, color:C.textMuted, marginRight:4 }}>카드 크기</span>
+      <span style={{ fontSize:12, color:C.textMuted, marginRight:4 }}>카드 크기</span>
       {[{id:"sm",label:"S"},{id:"md",label:"M"}].map(s=>(
-        <button key={s.id} onClick={()=>setCardSize(s.id)} style={{ width:28, height:28, borderRadius:6, border:`1px solid ${cardSize===s.id?C.accent:C.border}`, background:cardSize===s.id?C.accentSoft:"transparent", color:cardSize===s.id?C.accent:C.textMuted, fontSize:11, fontWeight:700, cursor:"pointer" }}>{s.label}</button>
+        <button key={s.id} onClick={()=>setCardSize(s.id)} style={{ width:28, height:28, borderRadius:6, border:`1px solid ${cardSize===s.id?C.accent:C.border}`, background:cardSize===s.id?C.accentSoft:"transparent", color:cardSize===s.id?C.accent:C.textMuted, fontSize:12, fontWeight:700, cursor:"pointer" }}>{s.label}</button>
       ))}
       <div style={{ width:1, height:16, background:C.border, margin:"0 4px" }}/>
-      <span style={{ fontSize:11, color:C.textMuted }}>드래그로 단계 변경</span>
+      <span style={{ fontSize:12, color:C.textMuted }}>드래그로 단계 변경</span>
     </div>
 
     {/* Board */}
@@ -1985,13 +2050,13 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
             style={{ width:isCol?48:isSm?220:272, flexShrink:0, background:isOver?`${stage.color}06`:C.surfaceUp, border:`1.5px solid ${isOver?stage.color:C.border}`, borderRadius:12, display:"flex", flexDirection:"column", transition:"all .2s", maxHeight:720, minHeight:120 }}>
 
             {/* Column header */}
-            <div style={{ padding:isCol?"10px 8px":"12px 14px 10px", flexShrink:0, borderBottom:`1px solid ${C.border}`, cursor:"pointer" }} onClick={()=>toggleCollapse(stage.id)}>
+            <div style={{ padding:isCol?"10px 8px":"12px 14px 10px", flexShrink:0, borderBottom:`1px solid ${C.border}`, cursor:"pointer" }} role="button" tabIndex={0} onClick={()=>toggleCollapse(stage.id)}>
               {isCol ? (
                 // Collapsed — vertical text
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
                   <div style={{ width:8, height:8, borderRadius:"50%", background:stage.color }}/>
-                  <span style={{ fontSize:10, fontWeight:700, color:stage.color, writingMode:"vertical-rl", textOrientation:"mixed", letterSpacing:".05em" }}>{stage.label}</span>
-                  <span style={{ fontSize:10, background:`${stage.color}20`, color:stage.color, borderRadius:10, padding:"2px 4px", fontWeight:800 }}>{stageOpps.length}</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:stage.color, writingMode:"vertical-rl", textOrientation:"mixed", letterSpacing:".05em" }}>{stage.label}</span>
+                  <span style={{ fontSize:12, background:`${stage.color}20`, color:stage.color, borderRadius:10, padding:"2px 4px", fontWeight:800 }}>{stageOpps.length}</span>
                 </div>
               ) : (
                 <div>
@@ -1999,13 +2064,13 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                     <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                       <span style={{ width:7, height:7, borderRadius:"50%", background:stage.color, display:"block", flexShrink:0 }}/>
                       <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{stage.label}</span>
-                      <span style={{ fontSize:10, background:`${stage.color}18`, color:stage.color, borderRadius:10, padding:"1px 6px", fontWeight:700 }}>{stageOpps.length}</span>
+                      <span style={{ fontSize:12, background:`${stage.color}18`, color:stage.color, borderRadius:10, padding:"1px 6px", fontWeight:700 }}>{stageOpps.length}</span>
                     </div>
-                    <button style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:11, padding:0 }}>⟨</button>
+                    <button style={{ background:"none", border:"none", color:C.textDim, cursor:"pointer", fontSize:12, padding:0 }}>⟨</button>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between" }}>
-                    <span style={{ fontSize:11, fontWeight:700, color:stage.color }}>{fmt(totalVal)}</span>
-                    <span style={{ fontSize:10, color:C.textDim }}>{stage.prob}%</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:stage.color }}>{fmt(totalVal)}</span>
+                    <span style={{ fontSize:12, color:C.textDim }}>{stage.prob}%</span>
                   </div>
                 </div>
               )}
@@ -2026,7 +2091,7 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                     style={{ background:C.surface, border:`1px solid ${isDragging?stage.color:late?"#FCA5A530":C.border}`, borderRadius:8, padding:"9px 12px", cursor:"pointer", opacity:isDragging?.5:1, transition:"box-shadow .15s" }}>
                     <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:3, lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <span style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"60%" }}>{acc.name}</span>
+                      <span style={{ fontSize:12, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"60%" }}>{acc.name}</span>
                       <span style={{ fontSize:12, fontWeight:800, color:stage.color, flexShrink:0 }}>{fmt(o.value)}</span>
                     </div>
                     {bu && <div style={{ marginTop:4 }}><span style={{ fontSize:9, background:`${buColor(bu.color)}15`, color:buColor(bu.color), padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span></div>}
@@ -2040,28 +2105,28 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
                   <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:5, lineHeight:1.35 }}>{o.name}</div>
                   {/* Badges */}
                   <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
-                    <span style={{ fontSize:10, color:C.textMuted }}>{acc.name}</span>
-                    {bu && <span style={{ fontSize:10, background:`${buColor(bu.color)}15`, color:buColor(bu.color), padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span>}
-                    {tc && <span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{tc.icon}</span>}
+                    <span style={{ fontSize:12, color:C.textMuted }}>{acc.name}</span>
+                    {bu && <span style={{ fontSize:12, background:`${buColor(bu.color)}15`, color:buColor(bu.color), padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{bu.id}</span>}
+                    {tc && <span style={{ fontSize:12, background:`${tc.color}12`, color:tc.color, padding:"1px 5px", borderRadius:5, fontWeight:700 }}>{tc.icon}</span>}
                   </div>
                   {/* Value + prob bar */}
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
                     <span style={{ fontSize:14, fontWeight:800, color:stage.color }}>{fmt(o.value)}</span>
-                    <span style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</span>
+                    <span style={{ fontSize:12, color:C.textMuted }}>{o.probability}%</span>
                   </div>
                   <div style={{ height:3, background:C.border, borderRadius:2, marginBottom:8, overflow:"hidden" }}>
                     <div style={{ width:`${o.probability}%`, height:"100%", background:stage.color, borderRadius:2 }}/>
                   </div>
                   {/* Next step */}
 
-                  <div style={{ fontSize:10, color:C.textDim, marginTop:5, display:"flex", justifyContent:"space-between" }}>
+                  <div style={{ fontSize:12, color:C.textDim, marginTop:5, display:"flex", justifyContent:"space-between" }}>
                     <span>{o.closeDate}</span>
                     <span>{o.owner}</span>
                   </div>
                 </div>;
               })}
               {stageOpps.length===0 && (
-                <div style={{ textAlign:"center", padding:"20px 0", color:C.textDim, fontSize:11, border:`1.5px dashed ${C.border}`, borderRadius:8, marginTop:4 }}>비어 있음</div>
+                <div style={{ textAlign:"center", padding:"20px 0", color:C.textDim, fontSize:12, border:`1.5px dashed ${C.border}`, borderRadius:8, marginTop:4 }}>비어 있음</div>
               )}
             </div>}
           </div>;
@@ -2071,15 +2136,15 @@ function KanbanBoard({ opps, clients, onSelect, onUpdate }) {
 
     {/* Lost strip */}
     {lostOpps.length>0 && <div style={{ marginTop:16, background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>
-      <div style={{ fontSize:11, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>손실 ({lostOpps.length})</div>
+      <div style={{ fontSize:12, color:C.red, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>손실 ({lostOpps.length})</div>
       <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
         {lostOpps.map(o=>{
           const acc=clients.find(c=>c.id===o.accountId)||{};
-          return <div key={o.id} onClick={()=>onSelect(o)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", cursor:"pointer", opacity:.75 }}>
+          return <div key={o.id} role="button" tabIndex={0} onClick={()=>onSelect(o)} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", cursor:"pointer", opacity:.75 }}>
             <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{o.name}</div>
-            <div style={{ fontSize:11, color:C.textMuted, marginBottom:o.lossReason?4:0 }}>{acc.name} · {fmt(o.value)}</div>
+            <div style={{ fontSize:12, color:C.textMuted, marginBottom:o.lossReason?4:0 }}>{acc.name} · {fmt(o.value)}</div>
             {o.lossReason && (
-              <span style={{ fontSize:10, background:`${C.red}15`, color:C.red, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>
+              <span style={{ fontSize:12, background:`${C.red}15`, color:C.red, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>
                 {o.lossReason}
               </span>
             )}
@@ -2104,21 +2169,21 @@ function OppListView({ opps, clients, onSelect }) {
             <span style={{ fontSize:12, color:C.textMuted }}>{acc.name} · {o.owner}</span>
             {o.oppType&&o.oppType!=="일반수주"&&(()=>{
               const tc=OPP_TYPES.find(t=>t.id===o.oppType);
-              return tc?<span style={{ fontSize:10, background:`${tc.color}12`, color:tc.color, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{tc.icon} {tc.label}</span>:null;
+              return tc?<span style={{ fontSize:12, background:`${tc.color}12`, color:tc.color, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{tc.icon} {tc.label}</span>:null;
             })()}
           </div>
         </div>
         <StagePill stage={o.stage}/>
         <div>
           <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{fmt(o.value)}</div>
-          <div style={{ fontSize:11, color:C.textMuted }}>가중 {fmt(Math.round(o.value*o.probability/100))}</div>
+          <div style={{ fontSize:12, color:C.textMuted }}>가중 {fmt(Math.round(o.value*o.probability/100))}</div>
         </div>
         <ProbBar value={o.probability} stage={o.stage}/>
         <div>
           <div style={{ fontSize:12, color:late&&o.stage!=="수주확정"?C.red:C.textMuted, fontWeight:late&&o.stage!=="수주확정"?700:400 }}>
 —
           </div>
-          <div style={{ fontSize:11, color:C.textDim }}>{o.nextStepDate}</div>
+          <div style={{ fontSize:12, color:C.textDim }}>{o.nextStepDate}</div>
         </div>
         <div style={{ fontSize:12, color:C.textMuted }}>{o.closeDate||"—"}</div>
       </Card>;
@@ -2194,7 +2259,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
               <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
             </div>
             <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
-            <div style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ width:5, height:5, borderRadius:"50%", background:m.color }}/>
               {m.sub}
             </div>
@@ -2212,7 +2277,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
           const buWonVal  = buWon.reduce((s,o)=>s+o.value,0);
           const isSelected = buFilter===bu.id;
           return (
-            <div key={bu.id} onClick={()=>setBU(isSelected?"전체":bu.id)}
+            <div key={bu.id} role="button" tabIndex={0} onClick={()=>setBU(isSelected?"전체":bu.id)}
               style={{
                 background:isSelected?`${buColor(bu.color)}10`:C.surfaceUp,
                 border:`1.5px solid ${isSelected?buColor(bu.color):C.border}`,
@@ -2224,14 +2289,14 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                 <div>
-                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
                   <div style={{ fontSize:12, fontWeight:700, color:buColor(bu.color) }}>{fmt(buPipe)}</div>
-                  <div style={{ fontSize:10, color:C.textDim }}>{buActive.length}건</div>
+                  <div style={{ fontSize:12, color:C.textDim }}>{buActive.length}건</div>
                 </div>
                 <div>
-                  <div style={{ fontSize:10, color:C.textMuted, marginBottom:2 }}>수주확정</div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginBottom:2 }}>수주확정</div>
                   <div style={{ fontSize:12, fontWeight:700, color:C.green }}>{fmt(buWonVal)}</div>
-                  <div style={{ fontSize:10, color:C.textDim }}>{buWon.length}건</div>
+                  <div style={{ fontSize:12, color:C.textDim }}>{buWon.length}건</div>
                 </div>
               </div>
             </div>
@@ -2318,14 +2383,14 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
                 </div>
 
                 {/* Stage pill */}
-                <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15`, flexShrink:0 }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15`, flexShrink:0 }}>
                   <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
                 </span>
 
                 {/* Value */}
                 <div style={{ textAlign:"right", flexShrink:0 }}>
                   <div style={{ fontSize:15, fontWeight:800, color:s.color }}>{fmt(o.value)}</div>
-                  <div style={{ fontSize:11, color:C.textMuted }}>{o.probability}%</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{o.probability}%</div>
                 </div>
 
                 {/* Restore + Admin delete */}
@@ -2413,18 +2478,18 @@ function ContactModal({ contact, contacts, onSave, onClose }) {
     {tab==="relation" && <div>
       <Sel label="영향력 수준" value={f.influence} onChange={s("influence")} options={INFLUENCE_LEVELS}/>
       <div style={{ marginBottom:16 }}>
-        <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영향력 설명</div>
+        <div style={{ fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영향력 설명</div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {INFLUENCE_LEVELS.map(lv => (
             <div key={lv} style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 10px", borderRadius:20, background:`${INFLUENCE_COLOR[lv]}15`, border:`1px solid ${INFLUENCE_COLOR[lv]}30` }}>
               <span style={{ width:6, height:6, borderRadius:"50%", background:INFLUENCE_COLOR[lv], flexShrink:0 }}/>
-              <span style={{ fontSize:11, color:INFLUENCE_COLOR[lv], fontWeight:700 }}>{lv}</span>
+              <span style={{ fontSize:12, color:INFLUENCE_COLOR[lv], fontWeight:700 }}>{lv}</span>
             </div>
           ))}
         </div>
       </div>
       {others.length > 0 && <div style={{ marginBottom:16 }}>
-        <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>상위 보고 대상 (Reports To)</label>
+        <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>상위 보고 대상 (Reports To)</label>
         <select value={f.reportsTo} onChange={e=>s("reportsTo")(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
           <option value="">— 없음 (최상위) —</option>
           {others.map(c => <option key={c.id} value={c.id}>{c.name} ({c.title})</option>)}
@@ -2461,8 +2526,8 @@ function ContactsTab({ contacts, onEdit, onDelete }) {
                   <div>
                     <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                       <span style={{ fontSize:15, fontWeight:700, color:C.text }}>{c.name}</span>
-                      {c.primary&&<span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>주담당</span>}
-                      {c.influence&&<span style={{ fontSize:10, background:`${iColor}15`, color:iColor, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{c.influence}</span>}
+                      {c.primary&&<span style={{ fontSize:12, background:C.accentSoft, color:C.accent, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>주담당</span>}
+                      {c.influence&&<span style={{ fontSize:12, background:`${iColor}15`, color:iColor, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{c.influence}</span>}
                     </div>
                     <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>{c.title}{c.dept?` · ${c.dept}`:""}</div>
                   </div>
@@ -2483,7 +2548,7 @@ function ContactsTab({ contacts, onEdit, onDelete }) {
                 {c.family &&<div style={{ fontSize:12, color:C.text }}><span style={{ color:C.textMuted, fontWeight:600 }}>가족 사항</span>　　{c.family}</div>}
                 {c.keyNote&&<div style={{ fontSize:12, color:C.text, background:C.yellowSoft, borderRadius:6, padding:"6px 10px", marginTop:2 }}><span style={{ color:C.yellow, fontWeight:700 }}>📌 주요사항</span>　{c.keyNote}</div>}
               </div>}
-              {c.reportsTo&&(()=>{const mgr=contacts.find(x=>x.id===c.reportsTo); return mgr?<div style={{ marginTop:10, fontSize:11, color:C.textMuted }}>↑ 보고 대상: <strong style={{ fontWeight:600, color:C.text }}>{mgr.name} ({mgr.title})</strong></div>:null;})()}
+              {c.reportsTo&&(()=>{const mgr=contacts.find(x=>x.id===c.reportsTo); return mgr?<div style={{ marginTop:10, fontSize:12, color:C.textMuted }}>↑ 보고 대상: <strong style={{ fontWeight:600, color:C.text }}>{mgr.name} ({mgr.title})</strong></div>:null;})()}
             </div>;
           })}
         </div>
@@ -2533,15 +2598,15 @@ function OrgChart({ contacts }) {
                 <div>
                   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                     <span style={{ fontSize:14, fontWeight:700, color:C.text }}>{c.name}</span>
-                    {c.primary && <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"2px 7px", borderRadius:10, fontWeight:700 }}>주담당</span>}
-                    <span style={{ fontSize:10, background:`${iColor}15`, color:iColor, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>{influence}</span>
+                    {c.primary && <span style={{ fontSize:12, background:C.accentSoft, color:C.accent, padding:"2px 7px", borderRadius:10, fontWeight:700 }}>주담당</span>}
+                    <span style={{ fontSize:12, background:`${iColor}15`, color:iColor, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>{influence}</span>
                   </div>
                   <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{c.title}{c.dept ? ` · ${c.dept}` : ""}</div>
                 </div>
               </div>
               <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                {c.phone && <a href={`tel:${c.phone}`} style={{ fontSize:11, color:C.textMuted, textDecoration:"none" }}>📞</a>}
-                {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:11, color:C.textMuted, textDecoration:"none" }}>✉</a>}
+                {c.phone && <a href={`tel:${c.phone}`} style={{ fontSize:12, color:C.textMuted, textDecoration:"none" }}>📞</a>}
+                {c.email && <a href={`mailto:${c.email}`} style={{ fontSize:12, color:C.textMuted, textDecoration:"none" }}>✉</a>}
                 {children.length > 0 && (
                   <button onClick={()=>setExpanded(e=>({...e,[c.id]:!isEx}))} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:13, padding:"2px 6px" }}>
                     {isEx ? "▲" : "▼"} {children.length}
@@ -2553,9 +2618,9 @@ function OrgChart({ contacts }) {
             {/* Personal details snippet */}
             {(c.hobby || c.keyNote || c.family) && (
               <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid ${C.border}`, display:"flex", flexDirection:"column", gap:4 }}>
-                {c.hobby    && <div style={{ fontSize:11, color:C.textMuted }}>🎯 <strong style={{ fontWeight:600 }}>취미:</strong> {c.hobby}</div>}
-                {c.family   && <div style={{ fontSize:11, color:C.textMuted }}>👨‍👩‍👧 <strong style={{ fontWeight:600 }}>가족:</strong> {c.family}</div>}
-                {c.keyNote  && <div style={{ fontSize:11, color:C.textMuted }}>📌 <strong style={{ fontWeight:600 }}>주요사항:</strong> {c.keyNote}</div>}
+                {c.hobby    && <div style={{ fontSize:12, color:C.textMuted }}>🎯 <strong style={{ fontWeight:600 }}>취미:</strong> {c.hobby}</div>}
+                {c.family   && <div style={{ fontSize:12, color:C.textMuted }}>👨‍👩‍👧 <strong style={{ fontWeight:600 }}>가족:</strong> {c.family}</div>}
+                {c.keyNote  && <div style={{ fontSize:12, color:C.textMuted }}>📌 <strong style={{ fontWeight:600 }}>주요사항:</strong> {c.keyNote}</div>}
               </div>
             )}
           </div>
@@ -2581,11 +2646,11 @@ function OrgChart({ contacts }) {
     <div>
       {/* Legend */}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:20, padding:"10px 14px", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}` }}>
-        <span style={{ fontSize:11, color:C.textMuted, fontWeight:700, marginRight:4 }}>영향력:</span>
+        <span style={{ fontSize:12, color:C.textMuted, fontWeight:700, marginRight:4 }}>영향력:</span>
         {INFLUENCE_LEVELS.map(lv => (
           <div key={lv} style={{ display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:8, height:8, borderRadius:"50%", background:INFLUENCE_COLOR[lv], flexShrink:0 }}/>
-            <span style={{ fontSize:11, color:INFLUENCE_COLOR[lv], fontWeight:700 }}>{lv}</span>
+            <span style={{ fontSize:12, color:INFLUENCE_COLOR[lv], fontWeight:700 }}>{lv}</span>
           </div>
         ))}
       </div>
@@ -2596,7 +2661,7 @@ function OrgChart({ contacts }) {
       {/* Orphans */}
       {orphans.length > 0 && (
         <div style={{ marginTop:16 }}>
-          <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>기타 (계층 미설정)</div>
+          <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:10 }}>기타 (계층 미설정)</div>
           {orphans.map(c => renderNode(c, 0))}
         </div>
       )}
@@ -2770,18 +2835,18 @@ function ClientNewsMonitor({ client, industry }) {
 
           {/* Summary card */}
           <Card style={{ background:`${C.accent}08`, border:`1px solid ${C.accentGlow}` }}>
-            <div style={{ fontSize:11, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>핵심 요약</div>
+            <div style={{ fontSize:12, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>핵심 요약</div>
             <div style={{ fontSize:14, color:C.text, lineHeight:1.8 }}>{news.summary}</div>
           </Card>
 
           {/* Sales tips */}
           {news.salesTips?.length > 0 && (
             <Card style={{ background:`${C.green}08`, border:`1px solid ${C.green}25` }}>
-              <div style={{ fontSize:11, color:C.green, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>💼 영업 활용 포인트</div>
+              <div style={{ fontSize:12, color:C.green, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>💼 영업 활용 포인트</div>
               <div style={{ display:"grid", gap:8 }}>
                 {news.salesTips.map((tip,i)=>(
                   <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                    <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:C.green, flexShrink:0 }}>{i+1}</div>
+                    <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:C.green, flexShrink:0 }}>{i+1}</div>
                     <div style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{tip}</div>
                   </div>
                 ))}
@@ -2807,20 +2872,20 @@ function ClientNewsMonitor({ client, industry }) {
                 <Card key={i} style={{ padding:"18px 20px" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
                     <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                      <span style={{ fontSize:11, background:`${ic}15`, color:ic, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>
+                      <span style={{ fontSize:12, background:`${ic}15`, color:ic, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>
                         영향도 {impactLabel[article.impact]||"—"}
                       </span>
-                      <span style={{ fontSize:11, background:C.surfaceUp, color:C.textMuted, padding:"2px 9px", borderRadius:10, fontWeight:600, border:`1px solid ${C.border}` }}>
+                      <span style={{ fontSize:12, background:C.surfaceUp, color:C.textMuted, padding:"2px 9px", borderRadius:10, fontWeight:600, border:`1px solid ${C.border}` }}>
                         {article.category}
                       </span>
-                      {article.date && <span style={{ fontSize:11, color:C.textDim }}>{article.date}</span>}
+                      {article.date && <span style={{ fontSize:12, color:C.textDim }}>{article.date}</span>}
                     </div>
                   </div>
                   <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:8, lineHeight:1.5 }}>{article.title}</div>
                   <div style={{ fontSize:13, color:C.textMuted, lineHeight:1.7, marginBottom:10 }}>{article.content}</div>
                   {article.impactDesc && (
                     <div style={{ display:"flex", gap:8, padding:"8px 12px", background:C.surfaceUp, borderRadius:8, borderLeft:`3px solid ${ic}` }}>
-                      <span style={{ fontSize:11, color:ic, fontWeight:700, flexShrink:0 }}>영업 시사점</span>
+                      <span style={{ fontSize:12, color:ic, fontWeight:700, flexShrink:0 }}>영업 시사점</span>
                       <span style={{ fontSize:12, color:C.text }}>{article.impactDesc}</span>
                     </div>
                   )}
@@ -2870,20 +2935,20 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
           const avl = AVL_STATUS.find(a=>a.id===(data.avlStatus||"미등록"));
           return (
             <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>AVL 등록</div>
+              <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>AVL 등록</div>
               <select value={data.avlStatus||"미등록"} onChange={e=>update({avlStatus:e.target.value, avlUpdatedAt:today()})}
                 style={{ background:avl.bg, border:`1.5px solid ${avl.color}40`, color:avl.color, borderRadius:8, padding:"5px 12px", fontSize:12, fontWeight:700, outline:"none", cursor:"pointer" }}>
                 {AVL_STATUS.map(a=><option key={a.id} value={a.id}>{a.id}</option>)}
               </select>
               {/* 업데이트 날짜 */}
               {data.avlUpdatedAt && (
-                <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>
+                <div style={{ fontSize:12, color:C.textDim, marginTop:3 }}>
                   {data.avlStatus==="등록완료" ? "✅ 완료" : "업데이트"} {data.avlUpdatedAt}
                 </div>
               )}
               {/* 등록완료 시 연결된 딜 표시 */}
               {data.avlStatus==="등록완료" && data.avlOppName && (
-                <div style={{ fontSize:10, color:C.accent, marginTop:2, maxWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                <div style={{ fontSize:12, color:C.accent, marginTop:2, maxWidth:140, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                   📦 {data.avlOppName}
                 </div>
               )}
@@ -2904,12 +2969,12 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
     </div>:<div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:14 }}>
         {[{label:"사업자번호",value:data.bizNo},{label:"기업규모",value:data.size},{label:"설립연도",value:data.founded?`${data.founded}년`:""},{label:"웹사이트",value:data.website,link:true}].map(it=><div key={it.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px" }}>
-          <div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
+          <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>{it.label}</div>
           {it.link&&it.value?<a href={it.value} target="_blank" rel="noopener noreferrer" style={{ fontSize:13, color:C.accent, textDecoration:"none" }}>{it.value}</a>:<div style={{ fontSize:13, color:it.value?C.text:C.textDim }}>{it.value||"—"}</div>}
         </div>)}
       </div>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", marginBottom:12 }}><div style={{ fontSize:10, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>주소</div><div style={{ fontSize:13, color:data.address?C.text:C.textDim }}>{data.address||"—"}</div></div>
-      <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>영업 메모</div><div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{data.note||"—"}</div></div>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", marginBottom:12 }}><div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:5 }}>주소</div><div style={{ fontSize:13, color:data.address?C.text:C.textDim }}>{data.address||"—"}</div></div>
+      <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}><div style={{ fontSize:12, color:C.accent, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>영업 메모</div><div style={{ fontSize:13, color:C.text, lineHeight:1.7 }}>{data.note||"—"}</div></div>
       <Btn variant="ghost" size="sm" onClick={()=>{setForm({bizNo:data.bizNo,address:data.address,size:data.size,founded:data.founded,website:data.website,note:data.note});setEdit(true);}}>✏ 수정</Btn>
     </div>)}
     {subTab==="contacts"&&<div>
@@ -2975,7 +3040,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
               <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
                 <div style={{ fontSize:12, fontWeight:800, color:C.textMuted, letterSpacing:".05em", whiteSpace:"nowrap" }}>{monthLabel}</div>
                 <div style={{ flex:1, height:1, background:C.border }}/>
-                <div style={{ fontSize:11, color:C.textDim }}>{items.length}건</div>
+                <div style={{ fontSize:12, color:C.textDim }}>{items.length}건</div>
               </div>
 
               {/* 타임라인 아이템 */}
@@ -3004,15 +3069,15 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
                               {h.date?.replace(/-/g,".")}
                             </span>
                             {h.by && (
-                              <span style={{ fontSize:11, color:C.textDim, display:"flex", alignItems:"center", gap:4 }}>
+                              <span style={{ fontSize:12, color:C.textDim, display:"flex", alignItems:"center", gap:4 }}>
                                 <span style={{ width:16, height:16, borderRadius:"50%", background:C.accentSoft, display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:8, fontWeight:800, color:C.accent }}>{h.by[0]}</span>
                                 {h.by}
                               </span>
                             )}
                           </div>
                           <div style={{ display:"flex", gap:4 }}>
-                            <button onClick={()=>setHM(h)} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>수정</button>
-                            <button onClick={()=>{ if(window.confirm("이 기록을 삭제하시겠습니까?")) update({history:data.history.filter(x=>x.id!==h.id)}); }} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.red}30`, borderRadius:6, color:C.red, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>삭제</button>
+                            <button onClick={()=>setHM(h)} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.textMuted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>수정</button>
+                            <button onClick={()=>{ if(window.confirm("이 기록을 삭제하시겠습니까?")) update({history:data.history.filter(x=>x.id!==h.id)}); }} style={{ padding:"4px 10px", background:"transparent", border:`1px solid ${C.red}30`, borderRadius:6, color:C.red, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>삭제</button>
                           </div>
                         </div>
 
@@ -3036,8 +3101,8 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {data.files.map(f=><div key={f.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", display:"flex", gap:12, alignItems:"center" }}>
           <div style={{ width:38, height:38, borderRadius:8, background:`${FILE_CLR[f.type]||C.textMuted}20`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{FILE_ICO[f.type]}</div>
-          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:13, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div><div style={{ fontSize:11, color:C.textMuted }}>{f.type} · {f.date}</div></div>
-          <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:C.accent, textDecoration:"none" }}>열기↗</a>
+          <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:13, fontWeight:700, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div><div style={{ fontSize:12, color:C.textMuted }}>{f.type} · {f.date}</div></div>
+          <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontSize:12, color:C.accent, textDecoration:"none" }}>열기↗</a>
           <Btn size="sm" variant="danger" onClick={()=>{ if(window.confirm(`파일 "${f.name}"을 삭제하시겠습니까?`)) update({files:data.files.filter(x=>x.id!==f.id)}); }}>삭제</Btn>
         </div>)}
       </div>
@@ -3048,7 +3113,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
       <div style={{ display:"grid", gap:8 }}>
         {clientOpps.map(o=>{
           const s=STAGE_MAP[o.stage]||{};
-          return <div key={o.id} onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)}
+          return <div key={o.id} role="button" tabIndex={0} onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(o)}
             style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:16, cursor:onNavigateToPipeline?"pointer":"default", transition:"border-color .15s, box-shadow .15s" }}
             onMouseEnter={e=>{if(onNavigateToPipeline){e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.boxShadow=`0 0 0 1px ${C.accentGlow}`;}}}
             onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.boxShadow="none";}}>
@@ -3112,7 +3177,7 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
 
     {/* 고객사명 — 검색 드롭다운 포함 */}
     <div style={{ marginBottom:16, position:"relative" }}>
-      <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사명</label>
+      <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>고객사명</label>
       <input
         value={f.name}
         onChange={e=>{ sF(p=>({...p,name:e.target.value})); setConfirmed(false); }}
@@ -3125,7 +3190,7 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
       {/* 자동완성 드롭다운 */}
       {suggestions.length > 0 && (
         <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.1)", zIndex:300, overflow:"hidden" }}>
-          <div style={{ padding:"8px 12px", fontSize:11, color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>기존 고객사</div>
+          <div style={{ padding:"8px 12px", fontSize:12, color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>기존 고객사</div>
           {suggestions.map(c=>(
             <div key={c.id} onMouseDown={()=>{ sF(p=>({...p,name:c.name,industry:c.industry||p.industry,owner:c.owner||p.owner})); setNF(false); }}
               style={{ padding:"10px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:10, borderBottom:`1px solid ${C.border}` }}
@@ -3134,9 +3199,9 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
               <div style={{ width:28, height:28, borderRadius:7, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.accent, flexShrink:0 }}>{c.name[0]}</div>
               <div>
                 <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{c.name}</div>
-                <div style={{ fontSize:11, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
+                <div style={{ fontSize:12, color:C.textMuted }}>{c.industry} · {c.owner} 담당</div>
               </div>
-              <span style={{ marginLeft:"auto", fontSize:11, color:C.textMuted }}>기존</span>
+              <span style={{ marginLeft:"auto", fontSize:12, color:C.textMuted }}>기존</span>
             </div>
           ))}
         </div>
@@ -3166,7 +3231,7 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
             · <strong style={{ color:C.text }}>{c.name}</strong> · {c.industry} · {c.owner} 담당
           </div>
         ))}
-        <div style={{ fontSize:11, color:C.textDim, marginTop:6 }}>동일 고객사가 아닌지 확인해주세요</div>
+        <div style={{ fontSize:12, color:C.textDim, marginTop:6 }}>동일 고객사가 아닌지 확인해주세요</div>
       </div>
     )}
 
@@ -3252,7 +3317,7 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
               <div style={{ width:42, height:42, borderRadius:12, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:900, color:C.accent, flexShrink:0 }}>{c.name[0]}</div>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:15, fontWeight:800, color:C.text }}>{c.name}</div>
-                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{c.industry} · {c.owner} 담당</div>
+                <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{c.industry} · {c.owner} 담당</div>
               </div>
               <div style={{ display:"flex", gap:4 }} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>setModal(c)} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:13, padding:"2px 6px", borderRadius:4 }} title="수정">✏</button>
@@ -3267,15 +3332,15 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
                 {label:"영업기회", val:cOpps.length,           color:cOpps.length?C.purple:C.textDim},
               ].map(it=><div key={it.label} style={{ background:C.surfaceUp, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
                 <div style={{ fontSize:16, fontWeight:800, color:it.color }}>{it.val}</div>
-                <div style={{ fontSize:10, color:C.textMuted }}>{it.label}</div>
+                <div style={{ fontSize:12, color:C.textMuted }}>{it.label}</div>
               </div>)}
             </div>
             {p?<div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10 }}>
-              <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
-              <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
+              <div style={{ width:24, height:24, borderRadius:"50%", background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:C.accent, flexShrink:0 }}>{p.name[0]}</div>
+              <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, color:C.text, fontWeight:600 }}>{p.name}</div><div style={{ fontSize:12, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.title}</div></div>
             </div>:<div style={{ padding:"8px 10px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:12, color:C.textDim, textAlign:"center" }}>담당자 미등록</div>}
             <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontSize:11, color:d.history?.[0]?C.textMuted:C.textDim }}>
+              <div style={{ fontSize:12, color:d.history?.[0]?C.textMuted:C.textDim }}>
                 {d.history?.[0]?<span><span style={{ color:C.textDim }}>최근</span> · {d.history[0].date} {d.history[0].type}</span>:"접촉 기록 없음"}
               </div>
               {(()=>{
@@ -3283,7 +3348,7 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
                 if (!avl || d.avlStatus==="미등록") return null;
                 return (
                   <div style={{ textAlign:"right" }}>
-                    <span style={{ fontSize:10, background:avl.bg, color:avl.color, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>
+                    <span style={{ fontSize:12, background:avl.bg, color:avl.color, padding:"2px 8px", borderRadius:6, fontWeight:700 }}>
                       AVL {avl.id}
                     </span>
                     {d.avlStatus==="등록완료" && d.avlCompletedAt && (
@@ -3338,13 +3403,13 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
                       {label:"파일",     val:adb.files?.length||0},
                       {label:"영업기회", val:cOpps.length},
                     ].map(it=>(
-                      <span key={it.label} style={{ fontSize:11, color:C.textMuted }}>
+                      <span key={it.label} style={{ fontSize:12, color:C.textMuted }}>
                         <strong style={{ color:C.text }}>{it.val}</strong> {it.label}
                       </span>
                     ))}
                   </div>
                 </div>
-                {c.archivedAt && <div style={{ fontSize:11, color:C.textDim, textAlign:"center", flexShrink:0 }}>
+                {c.archivedAt && <div style={{ fontSize:12, color:C.textDim, textAlign:"center", flexShrink:0 }}>
                   <div>아카이브</div><div style={{ fontWeight:600, color:C.textMuted }}>{c.archivedAt}</div>
                 </div>}
                 <div style={{ display:"flex", gap:8, flexShrink:0 }}>
@@ -3419,7 +3484,7 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
               <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
             </div>
             <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
-            <div style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{ fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ width:5, height:5, borderRadius:"50%", background:m.color }}/>
               {m.sub}
             </div>
@@ -3449,7 +3514,7 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
             return <div key={a.id} style={{ display:"flex", gap:10, marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${C.border}` }}>
               <span style={{ width:6, height:6, borderRadius:"50%", background:PRI_CFG[a.priority], marginTop:5, flexShrink:0 }}/>
               <div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:600, color:C.text }}>{a.title}</div><div style={{ fontSize:13, color:C.textMuted }}>{cl.name||opp.name} · {a.owner}</div></div>
-              <span style={{ fontSize:11, color:ov?C.red:C.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
+              <span style={{ fontSize:12, color:ov?C.red:C.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
             </div>;
           })}
           {pending.length===0&&<div style={{ color:C.textMuted, fontSize:13 }}>모든 액션 완료 ✓</div>}
@@ -3491,7 +3556,7 @@ function Meetings({ meetings, onUpdate }) {
       {[...meetings].sort((a,b)=>b.weekOf.localeCompare(a.weekOf)).map(m=><Card key={m.id}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
           <div style={{ flex:1 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}><span style={{ background:C.accentSoft, color:C.accent, borderRadius:6, padding:"2px 10px", fontSize:11, fontWeight:700 }}>{m.weekOf}</span><span style={{ fontSize:15, fontWeight:700, color:C.text }}>{m.title}</span></div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}><span style={{ background:C.accentSoft, color:C.accent, borderRadius:6, padding:"2px 10px", fontSize:12, fontWeight:700 }}>{m.weekOf}</span><span style={{ fontSize:15, fontWeight:700, color:C.text }}>{m.title}</span></div>
             <div style={{ fontSize:12, color:C.textMuted, marginBottom:exp!==m.id?6:0 }}>참석: {m.attendees.join(", ")}</div>
             {exp!==m.id&&<div style={{ fontSize:13, color:C.textMuted, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis", maxWidth:600 }}>{m.agenda}</div>}
           </div>
@@ -3613,16 +3678,16 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
     <SL>템플릿 선택</SL>
     <div style={{ display:"grid", gap:8, marginBottom:20 }}>
       {ACTION_TEMPLATES.map(t => (
-        <div key={t.id} onClick={() => setSelTmpl(t)} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"12px 14px", background:selTmpl?.id===t.id ? `${t.color}12` : C.surfaceUp, border:`1.5px solid ${selTmpl?.id===t.id ? t.color : C.border}`, borderRadius:10, cursor:"pointer", transition:"all .15s" }}>
+        <div key={t.id} role="button" tabIndex={0} onClick={() => setSelTmpl(t)} style={{ display:"flex", alignItems:"flex-start", gap:12, padding:"12px 14px", background:selTmpl?.id===t.id ? `${t.color}12` : C.surfaceUp, border:`1.5px solid ${selTmpl?.id===t.id ? t.color : C.border}`, borderRadius:10, cursor:"pointer", transition:"all .15s" }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:t.color, flexShrink:0, marginTop:4 }}/>
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
               <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{t.name}</span>
-              <span style={{ fontSize:10, background:`${t.color}18`, color:t.color, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{t.actions.length}개 액션</span>
+              <span style={{ fontSize:12, background:`${t.color}18`, color:t.color, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{t.actions.length}개 액션</span>
             </div>
             <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
               {t.actions.map((a,i) => (
-                <span key={i} style={{ fontSize:11, color:C.textMuted }}>• {a.title}</span>
+                <span key={i} style={{ fontSize:12, color:C.textMuted }}>• {a.title}</span>
               ))}
             </div>
           </div>
@@ -3632,7 +3697,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
 
     {selTmpl && <>
       <div style={{ background:C.accentSoft, border:`1px solid ${C.accentGlow}`, borderRadius:8, padding:"10px 14px", marginBottom:16 }}>
-        <div style={{ fontSize:11, color:C.accent, fontWeight:700, marginBottom:6 }}>선택된 템플릿: {selTmpl.name}</div>
+        <div style={{ fontSize:12, color:C.accent, fontWeight:700, marginBottom:6 }}>선택된 템플릿: {selTmpl.name}</div>
         {selTmpl.actions.map((a,i) => (
           <div key={i} style={{ fontSize:12, color:C.text, marginBottom:3 }}>
             <span style={{ color:PRI_CFG[a.priority], fontWeight:700 }}>●</span> {a.title}
@@ -3643,7 +3708,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
         <div style={{ marginBottom:16 }}>
-          <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회</label>
+          <label style={{ display:"block", fontSize:12, color:C.textMuted, marginBottom:6, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase" }}>영업기회</label>
           <select value={selOpp} onChange={e=>setSelOpp(e.target.value)} style={{ width:"100%", background:C.inputBg, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none" }}>
             {opps.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
@@ -3718,7 +3783,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
   };
 
   const todayStr   = today();
-  const weekEnd    = (() => { const d = new Date(); d.setDate(d.getDate() + (7 - d.getDay())); return d.toISOString().split("T")[0]; })();
+  const weekEnd    = (() => { const d = new Date(); d.setDate(d.getDate() + (7 - d.getDay())); return localDate(d); })();
 
   // Auto-log to opp activities when completing an action
   const tog = (id) => {
@@ -3787,8 +3852,8 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
         { label:"기한 초과",    val:lateCount,   color:lateCount>0?C.red:C.textMuted    },
         { label:"완료",         val:doneCount,   color:C.green                           },
       ].map(s=>(
-        <div key={s.label} onClick={()=>{ if(s.label==="오늘 마감"){sDF("오늘");sF("진행중");} else if(s.label==="기한 초과"){sDF("기한초과");sF("진행중");} else if(s.label==="완료"){sF("완료");sDF("전체");} else {sF("진행중");sDF("전체");} }} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", cursor:"pointer", transition:"border-color .15s" }}>
-          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>{s.label}</div>
+        <div key={s.label} role="button" tabIndex={0} onClick={()=>{ if(s.label==="오늘 마감"){sDF("오늘");sF("진행중");} else if(s.label==="기한 초과"){sDF("기한초과");sF("진행중");} else if(s.label==="완료"){sF("완료");sDF("전체");} else {sF("진행중");sDF("전체");} }} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px", cursor:"pointer", transition:"border-color .15s" }}>
+          <div style={{ fontSize:12, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:6 }}>{s.label}</div>
           <div style={{ fontSize:24, fontWeight:900, color:s.color }}>{s.val}</div>
         </div>
       ))}
@@ -3846,7 +3911,7 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
         return <Card key={a.id} style={{ padding:"13px 18px", opacity:a.done?.55:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             {/* Checkbox */}
-            <button onClick={()=>tog(a.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11 }}>{a.done?"✓":""}</button>
+            <button onClick={()=>tog(a.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${a.done?C.green:ov?C.red:C.border}`, background:a.done?C.green:"transparent", cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:12 }}>{a.done?"✓":""}</button>
 
             {/* Title + sub */}
             <div style={{ flex:1, minWidth:0 }}>
@@ -3858,14 +3923,14 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
                   ? <button onClick={()=>onNavigateToPipeline&&onNavigateToPipeline(opp)} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:"inherit", fontSize:13, color:C.accent, textDecoration:"underline", textUnderlineOffset:2 }}>{opp.name}</button>
                   : <span style={{ fontSize:13, color:C.textMuted }}>파이프라인 미연결</span>}
                 {a.owner && <span style={{ fontSize:13, color:C.textMuted }}>· {a.owner}</span>}
-                {a.done && <span style={{ fontSize:10, background:C.greenSoft, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료 → 활동 자동 기록됨</span>}
+                {a.done && <span style={{ fontSize:12, background:C.greenSoft, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료 → 활동 자동 기록됨</span>}
               </div>
               {/* Progress note */}
-              {a.note && !a.done && <div style={{ fontSize:11, color:C.textMuted, marginTop:4, padding:"4px 8px", background:C.surfaceUp, borderRadius:6 }}>📝 {a.note}</div>}
+              {a.note && !a.done && <div style={{ fontSize:12, color:C.textMuted, marginTop:4, padding:"4px 8px", background:C.surfaceUp, borderRadius:6 }}>📝 {a.note}</div>}
             </div>
 
             {/* Priority */}
-            <span style={{ fontSize:11, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700, flexShrink:0 }}>{a.priority}</span>
+            <span style={{ fontSize:12, background:`${PRI_CFG[a.priority]}20`, color:PRI_CFG[a.priority], padding:"2px 9px", borderRadius:6, fontWeight:700, flexShrink:0 }}>{a.priority}</span>
 
             {/* Due date */}
             <span style={{ fontSize:12, color:ov?C.red:isToday?C.yellow:C.textMuted, fontWeight:ov||isToday?700:400, whiteSpace:"nowrap" }}>
@@ -3903,9 +3968,6 @@ function Actions({ actions, clients, opps, onUpdate, onUpdateOpps, onNavigateToP
 
 // ─── WEEKLY REPORT ────────────────────────────────────────────────────────────
 function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeline, onNavigateToClient }) {
-  const [report, setReport]   = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied]   = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
   const [buFilter,   setBU]         = useState("전체"); // 사업부 필터
   const [rtab, setRtab] = useState("pipeline");
@@ -3972,138 +4034,12 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
     };
   };
 
-  const generateReport = async () => {
-    setLoading(true);
-    setReport(null);
-    const snap = buildSnapshot();
-
-    const prompt = `당신은 강원에너지 영업팀의 주간 리포트를 작성하는 전문 영업 어시스턴트입니다.
-아래 데이터를 바탕으로 ${snap.weekLabel} 주간 영업 리포트를 작성해주세요.
-${buFilter !== "전체" ? `※ 이 리포트는 [${buFilter}] 사업부 전용입니다.` : "※ 이 리포트는 전체 사업부 통합 기준입니다."}
-
-=== 파이프라인 현황 ===
-활성 딜 수: ${snap.activeCount}개
-총 파이프라인: ${snap.totalPipe}
-가중 예상 매출: ${snap.weighted}
-수주확정: ${snap.wonCount}건 (${snap.wonValue})
-손실: ${snap.lostCount}건
-
-=== 영업기회 상세 ===
-${snap.oppsSummary}
-
-=== 액션 현황 ===
-진행중: ${snap.pendingActCount}개 / 완료: ${snap.doneActCount}개 / 기한초과: ${snap.lateActCount}개 / 이번주 마감: ${snap.weekActCount}개
-
-=== 진행중 액션 목록 ===
-${snap.actsSummary}
-
-=== 지난 주 회의 결정사항 ===
-${snap.lastMeetingDecisions}
-
-=== 지난 주 다음주 포커스 ===
-${snap.lastMeetingFocus}
-
-다음 형식으로 리포트를 작성해주세요. 각 섹션은 명확하게 구분하고 실질적이고 구체적인 내용으로 작성해주세요:
-
-## 📊 이번 주 파이프라인 요약
-(파이프라인 규모, 주요 변화, 핵심 지표 3~4줄 요약)
-
-## ✅ 주요 성과
-(이번 주 눈에 띄는 진전, 완료된 딜, 긍정적 신호 등)
-
-## ⚠️ 주의가 필요한 딜
-(기한 초과 액션, 단계가 오래 멈춘 딜, 리스크 요소 등)
-
-## 🎯 이번 주 핵심 액션
-(이번 주 반드시 완료해야 할 액션 Top 5, 우선순위 포함)
-
-## 📅 다음 주 전략 포커스
-(다음 주 집중해야 할 영업 전략과 방향 3~4가지)
-
-## 💡 영업팀 제언
-(데이터 기반의 구체적인 영업 전략 조언 2~3가지)
-
-한국어로 작성하고, 실무에서 바로 쓸 수 있는 수준으로 구체적으로 작성해주세요.`;
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1500,
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const data = await res.json();
-      const text = data.content?.map(b => b.text || "").join("") || "리포트 생성에 실패했습니다.";
-      setReport(text);
-    } catch(e) {
-      setReport("네트워크 오류가 발생했습니다. 다시 시도해주세요.");
-    }
-    setLoading(false);
-  };
-
-  const handleCopy = () => {
-    if (!report) return;
-    navigator.clipboard.writeText(report);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handlePrint = () => {
-    const win = window.open('', '_blank');
-    const snap = buildSnapshot();
-    win.document.write(`
-      <html><head><title>주간 영업 리포트 ${snap.weekLabel}</title>
-      <style>
-        body { font-family: 'Apple SD Gothic Neo', sans-serif; max-width: 800px; margin: 40px auto; color: #1E293B; line-height: 1.7; }
-        h1 { font-size: 22px; border-bottom: 2px solid #3B6FE8; padding-bottom: 12px; color: #003; }
-        h2 { font-size: 16px; margin-top: 28px; color: #1E293B; }
-        pre { white-space: pre-wrap; font-family: inherit; }
-      </style></head>
-      <body>
-        <h1>강원에너지 주간 영업 리포트</h1>
-        <p style="color:#64748B;margin-bottom:24px;">${snap.weekLabel}</p>
-        <pre>${report}</pre>
-      </body></html>
-    `);
-    win.document.close();
-    win.print();
-  };
-
-  // Render markdown-like text
-  const renderReport = (text) => {
-    return text.split('\n').map((line, i) => {
-      if (line.startsWith('## ')) {
-        return <div key={i} style={{ fontSize:15, fontWeight:700, color:C.text, marginTop:24, marginBottom:10, paddingBottom:8, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:8 }}>
-          {line.replace('## ','')}
-        </div>;
-      }
-      if (line.startsWith('- ') || line.startsWith('* ')) {
-        return <div key={i} style={{ display:"flex", gap:10, marginBottom:6, paddingLeft:4 }}>
-          <span style={{ color:C.accent, fontWeight:700, flexShrink:0, marginTop:1 }}>›</span>
-          <span style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{line.replace(/^[-*] /,'')}</span>
-        </div>;
-      }
-      if (line.match(/^\d+\./)) {
-        const num = line.match(/^(\d+)\./)[1];
-        return <div key={i} style={{ display:"flex", gap:10, marginBottom:6, paddingLeft:4 }}>
-          <span style={{ color:"#fff", background:C.accent, borderRadius:"50%", width:18, height:18, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, flexShrink:0, marginTop:2 }}>{num}</span>
-          <span style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{line.replace(/^\d+\. /,'')}</span>
-        </div>;
-      }
-      if (line.trim() === '') return <div key={i} style={{ height:6 }}/>;
-      return <p key={i} style={{ fontSize:13, color:C.text, lineHeight:1.7, margin:"4px 0" }}>{line}</p>;
-    });
-  };
-
   return <div>
     {/* Header */}
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
       <div>
         <h2 style={{ margin:0, fontSize:20, fontWeight:800, color:C.text }}>주간 영업 리포트</h2>
-        <p style={{ margin:"4px 0 0", fontSize:13, color:C.textMuted }}>AI가 현재 파이프라인과 액션 데이터를 분석해 리포트를 자동 생성합니다</p>
+        <p style={{ margin:"4px 0 0", fontSize:13, color:C.textMuted }}>금주/전주 영업 현황과 Follow-up 대상을 한눈에 정리합니다</p>
       </div>
       <div style={{ display:"flex", gap:10, alignItems:"center" }}>
         {/* Week navigator */}
@@ -4112,15 +4048,12 @@ ${snap.lastMeetingFocus}
           <span style={{ fontSize:13, color:C.text, fontWeight:600, minWidth:140, textAlign:"center" }}>{week.label}</span>
           <button onClick={()=>setWeekOffset(w=>w+1)} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:16, padding:"0 4px" }}>›</button>
         </div>
-        <Btn onClick={generateReport} style={{ minWidth:140 }}>
-          {loading ? "생성 중..." : "리포트 생성"}
-        </Btn>
       </div>
     </div>
 
     {/* 사업부 필터 */}
     <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:20, padding:"10px 14px", background:C.surfaceUp, borderRadius:10, border:`1px solid ${C.border}` }}>
-      <span style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginRight:4 }}>사업부</span>
+      <span style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginRight:4 }}>사업부</span>
       {[{ id:"전체", color:C.accent }, ...BUSINESS_UNITS].map(bu=>{
         const isSelected = buFilter === bu.id;
         const color = bu.color || C.accent;
@@ -4136,7 +4069,7 @@ ${snap.lastMeetingFocus}
         );
       })}
       {buFilter !== "전체" && (
-        <span style={{ marginLeft:"auto", fontSize:11, color:C.textMuted }}>
+        <span style={{ marginLeft:"auto", fontSize:12, color:C.textMuted }}>
           {filteredOpps.filter(o=>o.stage!=="손실").length}개 딜 표시 중
         </span>
       )}
@@ -4152,7 +4085,7 @@ ${snap.lastMeetingFocus}
           { label:"진행중 액션",     val:snap.pendingActCount, sub:`${snap.lateActCount}개 기한초과`,    color:snap.lateActCount>0?C.red:C.yellow },
           { label:"이번 주 마감",    val:snap.weekActCount,    sub:"액션",                              color:C.cyan    },
         ].map(m=><Card key={m.label}>
-          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>{m.label}</div>
+          <div style={{ fontSize:12, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>{m.label}</div>
           <div style={{ fontSize:24, fontWeight:900, color:m.color, marginBottom:2 }}>{m.val}</div>
           <div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div>
         </Card>);
@@ -4161,7 +4094,7 @@ ${snap.lastMeetingFocus}
 
     {/* ── 리포트 탭 ── */}
     <div style={{ display:"flex", gap:6, marginBottom:20, borderBottom:`2px solid ${C.border}` }}>
-      {[{k:"pipeline",l:"📊 수주 추진 현황"},{k:"activity",l:"📝 주간 영업활동"},{k:"followup",l:"⏰ Follow-up"},{k:"ai",l:"🤖 AI 리포트"}].map(t=>(
+      {[{k:"pipeline",l:"📊 수주 추진 현황"},{k:"activity",l:"📝 주간 영업활동"},{k:"followup",l:"⏰ Follow-up"}].map(t=>(
         <button key={t.k} onClick={()=>setRtab(t.k)} style={{ padding:"10px 20px", fontSize:15, fontWeight:rtab===t.k?800:600, color:rtab===t.k?C.accent:C.textMuted, background:"transparent", border:"none", borderBottom:`3px solid ${rtab===t.k?C.accent:"transparent"}`, marginBottom:-2, cursor:"pointer", fontFamily:"inherit" }}>{t.l}</button>
       ))}
     </div>
@@ -4298,10 +4231,10 @@ ${snap.lastMeetingFocus}
                     </span>
                   ))}
                 </div>
-                <span style={{ fontSize:11, background:isLast?C.surfaceUp:C.accentSoft, color:isLast?C.textMuted:C.accent, borderRadius:10, padding:"2px 9px", fontWeight:700, border:`1px solid ${isLast?C.border:"transparent"}` }}>
+                <span style={{ fontSize:12, background:isLast?C.surfaceUp:C.accentSoft, color:isLast?C.textMuted:C.accent, borderRadius:10, padding:"2px 9px", fontWeight:700, border:`1px solid ${isLast?C.border:"transparent"}` }}>
                   {sw.label}
                 </span>
-                {isLast && <span style={{ fontSize:11, color:C.textDim }}>지난 주 활동 내역</span>}
+                {isLast && <span style={{ fontSize:12, color:C.textDim }}>지난 주 활동 내역</span>}
               </div>
               <span style={{ fontSize:12, color:C.textMuted }}>
                 {weeklyActive.length > 0 ? `딜 ${weeklyActive.length}건` : ""}{weekClientHistory.length > 0 ? ` · 고객사 ${weekClientHistory.length}곳` : ""}
@@ -4340,7 +4273,7 @@ ${snap.lastMeetingFocus}
                           </div>
                         </div>
                         <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
-                          <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                          <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15` }}>
                             <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>
                             {opp.stage}
                           </span>
@@ -4355,13 +4288,13 @@ ${snap.lastMeetingFocus}
                           const sc = STAGE_MAP[h.stage] || {};
                           return (
                             <div key={h.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                              <div style={{ width:22, height:22, borderRadius:6, background:`${sc.color||C.accent}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                                <span style={{ fontSize:8, fontWeight:800, color:sc.color||C.accent }}>단계</span>
+                              <div style={{ minWidth:38, height:22, padding:"0 6px", borderRadius:6, background:`${sc.color||C.accent}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                                <span style={{ fontSize:11, fontWeight:800, color:sc.color||C.accent }}>단계</span>
                               </div>
                               <div style={{ flex:1 }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
                                   <span style={{ fontSize:12, fontWeight:700, color:sc.color||C.accent }}>→ {h.stage}</span>
-                                  <span style={{ fontSize:11, color:C.textDim }}>{h.date} · {h.by}</span>
+                                  <span style={{ fontSize:12, color:C.textDim }}>{h.date} · {h.by}</span>
                                 </div>
                                 {h.note && <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.5, marginTop:2 }}>{h.note}</div>}
                               </div>
@@ -4370,13 +4303,13 @@ ${snap.lastMeetingFocus}
                         })}
                         {weekActivities.map(a => (
                           <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                            <div style={{ width:22, height:22, borderRadius:6, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                              <span style={{ fontSize:8, fontWeight:800, color:C.accent }}>활동</span>
+                            <div style={{ minWidth:38, height:22, padding:"0 6px", borderRadius:6, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                              <span style={{ fontSize:11, fontWeight:800, color:C.accent }}>활동</span>
                             </div>
                             <div style={{ flex:1 }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:2 }}>
-                                <span style={{ fontSize:11, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
-                                <span style={{ fontSize:11, color:C.textDim }}>{a.date} · {a.by}</span>
+                                <span style={{ fontSize:12, background:C.surfaceUp, border:`1px solid ${C.border}`, color:C.textMuted, padding:"1px 7px", borderRadius:6, fontWeight:700 }}>{a.type}</span>
+                                <span style={{ fontSize:12, color:C.textDim }}>{a.date} · {a.by}</span>
                               </div>
                               <ActivityBody a={a} size={15} showNext={false}/>
                             </div>
@@ -4385,13 +4318,13 @@ ${snap.lastMeetingFocus}
                         {weekDoneActions.map(a => (
                           <div key={a.id} style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
                             <div style={{ width:22, height:22, borderRadius:6, background:`${C.green}15`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-                              <span style={{ fontSize:10, color:C.green, fontWeight:800 }}>✓</span>
+                              <span style={{ fontSize:12, color:C.green, fontWeight:800 }}>✓</span>
                             </div>
                             <div style={{ flex:1 }}>
                               <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                                 <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{a.title}</span>
                                 <span style={{ fontSize:13, color:C.textMuted }}>{a.owner}</span>
-                                <span style={{ fontSize:10, background:`${C.green}15`, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료</span>
+                                <span style={{ fontSize:12, background:`${C.green}15`, color:C.green, padding:"1px 7px", borderRadius:10, fontWeight:700 }}>완료</span>
                               </div>
                             </div>
                           </div>
@@ -4400,14 +4333,14 @@ ${snap.lastMeetingFocus}
 
                       {weekPendingActions.length > 0 && (
                         <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
-                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>
+                          <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>
                             {isLast ? "전주 미완료 액션" : "이번 주 마감 예정"}
                           </div>
                           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                             {weekPendingActions.map(a => {
                               const late = a.dueDate < today();
                               return (
-                                <span key={a.id} style={{ fontSize:11, background:late?C.redSoft:C.accentSoft, color:late?C.red:C.accent, border:`1px solid ${late?C.red:C.accent}30`, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>
+                                <span key={a.id} style={{ fontSize:12, background:late?C.redSoft:C.accentSoft, color:late?C.red:C.accent, border:`1px solid ${late?C.red:C.accent}30`, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>
                                   {late?"⚠ ":""}{a.title} ({a.owner})
                                 </span>
                               );
@@ -4429,7 +4362,7 @@ ${snap.lastMeetingFocus}
                           </div>;
                           if (opp.strategyNote) return <div>
                             <RichText text={opp.strategyNote} size={14} summaryFirst={false}/>
-                            <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>(파이프라인 기본 전략)</div>
+                            <div style={{ fontSize:12, color:C.textDim, marginTop:4 }}>(파이프라인 기본 전략)</div>
                           </div>;
                           return <span style={{ fontSize:13, color:C.textDim }}>이번 주 입력된 추진 전략 없음</span>;
                         })()}
@@ -4444,7 +4377,7 @@ ${snap.lastMeetingFocus}
             {weekClientHistory.length > 0 && (
               <div>
                 {weeklyActive.length > 0 && <div style={{ height:1, background:C.border, marginBottom:16 }}/>}
-                <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>🏢 고객사 DB 업데이트</div>
+                <div style={{ fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>🏢 고객사 DB 업데이트</div>
                 <div style={{ display:"grid", gap:10 }}>
                   {weekClientHistory.map(({ client, weekHist }) => {
                     const TYPE_CFG = {
@@ -4464,7 +4397,7 @@ ${snap.lastMeetingFocus}
                               <div style={{ fontSize:15, color:C.textMuted }}>{client.industry} · {client.owner} 담당</div>
                             </button>
                           </div>
-                          <span style={{ fontSize:11, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{weekHist.length}건</span>
+                          <span style={{ fontSize:12, background:`${C.green}12`, color:C.green, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{weekHist.length}건</span>
                         </div>
                         <div style={{ display:"grid", gap:6 }}>
                           {weekHist.map(h => {
@@ -4474,8 +4407,8 @@ ${snap.lastMeetingFocus}
                                 <span style={{ fontSize:13, flexShrink:0 }}>{tc.icon}</span>
                                 <div style={{ flex:1 }}>
                                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                    <span style={{ fontSize:11, fontWeight:700, color:tc.color }}>{h.type}</span>
-                                    <span style={{ fontSize:11, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
+                                    <span style={{ fontSize:12, fontWeight:700, color:tc.color }}>{h.type}</span>
+                                    <span style={{ fontSize:12, color:C.textDim }}>{h.date}{h.by ? ` · ${h.by}` : ""}</span>
                                   </div>
                                   {h.content && <div style={{ marginTop:2 }}><RichText text={h.content} size={15}/></div>}
                                 </div>
@@ -4564,60 +4497,6 @@ ${snap.lastMeetingFocus}
 
     </>}
 
-    {rtab==="ai" && <>
-    {/* ── AI 주간 리포트 ── */}
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-      <div>
-        <div style={{ fontSize:15, fontWeight:700, color:C.text }}>AI 주간 리포트</div>
-        <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>데이터 기반 영업 분석 및 전략 제언</div>
-      </div>
-      <Btn onClick={generateReport} style={{ minWidth:140 }}>
-        {loading ? "생성 중..." : report ? "재생성" : "리포트 생성"}
-      </Btn>
-    </div>
-
-    {!report && !loading && (
-      <Card style={{ textAlign:"center", padding:"56px 32px" }}>
-        <div style={{ fontSize:36, marginBottom:14 }}>📋</div>
-        <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:8 }}>리포트를 생성해보세요</div>
-        <div style={{ fontSize:13, color:C.textMuted, marginBottom:24, lineHeight:1.7 }}>
-          파이프라인·액션·회의록을 AI가 분석하여<br/>
-          회의 전 바로 공유할 수 있는 리포트를 자동 작성합니다
-        </div>
-        <Btn onClick={generateReport}>리포트 생성하기</Btn>
-      </Card>
-    )}
-
-    {loading && (
-      <Card style={{ textAlign:"center", padding:"56px 32px" }}>
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-          <div style={{ width:40, height:40, border:`3px solid ${C.border}`, borderTop:`3px solid ${C.accent}`, borderRadius:"50%", animation:"spin 1s linear infinite" }}/>
-          <div style={{ fontSize:15, fontWeight:600, color:C.text }}>AI가 데이터를 분석 중입니다...</div>
-          <div style={{ fontSize:13, color:C.textMuted }}>파이프라인과 액션을 기반으로 리포트를 작성하고 있습니다</div>
-        </div>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </Card>
-    )}
-
-    {report && !loading && (
-      <Card>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, paddingBottom:16, borderBottom:`1px solid ${C.border}` }}>
-          <div>
-            <div style={{ fontSize:15, fontWeight:700, color:C.text }}>강원에너지 주간 영업 리포트</div>
-            <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{week.label} · AI 자동 생성</div>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <Btn variant="ghost" size="sm" onClick={handleCopy}>{copied ? "✓ 복사됨" : "복사"}</Btn>
-            <Btn variant="ghost" size="sm" onClick={handlePrint}>인쇄 / PDF</Btn>
-            <Btn size="sm" onClick={generateReport}>재생성</Btn>
-          </div>
-        </div>
-        <div style={{ lineHeight:1.7 }}>
-          {renderReport(report)}
-        </div>
-      </Card>
-    )}
-    </>}
   </div>;
 }
 
@@ -4704,7 +4583,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
         {allOpps.length === 0 && <div style={{ textAlign:"center", padding:"32px 0", color:C.textMuted }}>이 분기에 배정된 파이프라인이 없습니다</div>}
 
         {/* Timeline header */}
-        {allOpps.length > 0 && <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 80px", gap:12, padding:"8px 14px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:11, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:".06em" }}>
+        {allOpps.length > 0 && <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 80px", gap:12, padding:"8px 14px", background:C.surfaceUp, borderRadius:8, marginBottom:10, fontSize:12, fontWeight:700, color:C.textMuted, textTransform:"uppercase", letterSpacing:".06em" }}>
           <div>영업기회</div><div>매출 예정일</div><div>금액</div><div>단계</div><div>담당자</div><div>수정</div>
         </div>}
 
@@ -4718,17 +4597,17 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
               <div key={o.id} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 80px", gap:12, alignItems:"center", padding:"12px 14px", background:won ? C.greenSoft : C.surface, border:`1px solid ${won ? C.green+"40" : C.border}`, borderRadius:10 }}>
                 <div>
                   <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{o.name}</div>
-                  <div style={{ fontSize:11, color:C.textMuted }}>{cl.name}</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{cl.name}</div>
                 </div>
                 <div>
                   <div style={{ fontSize:13, fontWeight:600, color: rd ? C.text : C.textDim }}>{rd || "미설정"}</div>
-                  <div style={{ fontSize:10, color:C.textMuted }}>{getQtr(rd) || "—"}</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{getQtr(rd) || "—"}</div>
                 </div>
                 <div>
                   <div style={{ fontSize:14, fontWeight:800, color: won ? C.green : s.color }}>{fmt(o.value)}</div>
-                  {!won && <div style={{ fontSize:10, color:C.textMuted }}>가중 {fmt(Math.round(o.value * o.probability / 100))}</div>}
+                  {!won && <div style={{ fontSize:12, color:C.textMuted }}>가중 {fmt(Math.round(o.value * o.probability / 100))}</div>}
                 </div>
-                <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15`, width:"fit-content" }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15`, width:"fit-content" }}>
                   <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
                 </span>
                 <div style={{ fontSize:12, color:C.textMuted }}>{o.owner}</div>
@@ -4768,7 +4647,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
           { label:"예상 추가 매출", val:fmt(totalForecast),            sub:"가중치 반영 파이프라인",  color:C.purple  },
         ].map(m => (
           <Card key={m.label}>
-            <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>{m.label}</div>
+            <div style={{ fontSize:12, color:C.textMuted, fontWeight:600, letterSpacing:".07em", textTransform:"uppercase", marginBottom:8 }}>{m.label}</div>
             <div style={{ fontSize:26, fontWeight:900, color:m.color, marginBottom:4 }}>{m.val}</div>
             <div style={{ fontSize:12, color:C.textMuted }}>{m.sub}</div>
           </Card>
@@ -4781,24 +4660,24 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
           const isSelected = selQ === qd.q;
           const overAch    = qd.achRate >= 100;
           return (
-            <div key={qd.q} onClick={() => setSelQ(isSelected ? null : qd.q)} style={{ background:C.surface, border:`2px solid ${isSelected ? qd.color : C.border}`, borderRadius:14, padding:"20px", cursor:"pointer", transition:"border-color .2s, box-shadow .2s", boxShadow: isSelected ? `0 0 0 1px ${qd.color}30, 0 8px 24px rgba(0,0,0,.08)` : "0 1px 4px rgba(0,0,0,.06)" }}>
+            <div key={qd.q} role="button" tabIndex={0} onClick={() => setSelQ(isSelected ? null : qd.q)} style={{ background:C.surface, border:`2px solid ${isSelected ? qd.color : C.border}`, borderRadius:14, padding:"20px", cursor:"pointer", transition:"border-color .2s, box-shadow .2s", boxShadow: isSelected ? `0 0 0 1px ${qd.color}30, 0 8px 24px rgba(0,0,0,.08)` : "0 1px 4px rgba(0,0,0,.06)" }}>
               {/* Q label */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <span style={{ width:10, height:10, borderRadius:"50%", background:qd.color, display:"block" }}/>
                   <span style={{ fontSize:16, fontWeight:900, color:qd.color }}>{qd.q}</span>
-                  <span style={{ fontSize:11, color:C.textMuted }}>{qd.label.split(" ")[1]}</span>
+                  <span style={{ fontSize:12, color:C.textMuted }}>{qd.label.split(" ")[1]}</span>
                 </div>
-                {overAch && <span style={{ fontSize:10, background:C.greenSoft, color:C.green, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>달성!</span>}
+                {overAch && <span style={{ fontSize:12, background:C.greenSoft, color:C.green, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>달성!</span>}
               </div>
 
               {/* Target */}
-              <div style={{ fontSize:11, color:C.textMuted, marginBottom:4 }}>목표</div>
+              <div style={{ fontSize:12, color:C.textMuted, marginBottom:4 }}>목표</div>
               <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:14 }}>{qd.target > 0 ? fmt(qd.target) : "미설정"}</div>
 
               {/* Progress bar — actual */}
               <div style={{ marginBottom:8 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.textMuted, marginBottom:4 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textMuted, marginBottom:4 }}>
                   <span>확정 매출</span><span style={{ fontWeight:700, color:qd.color }}>{qd.achRate}%</span>
                 </div>
                 <div style={{ height:8, background:C.border, borderRadius:4, overflow:"hidden" }}>
@@ -4810,20 +4689,20 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
               {/* Forecast bar */}
               {qd.forecastVal > 0 && (
                 <div>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.textMuted, marginBottom:4 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.textMuted, marginBottom:4 }}>
                     <span>파이프라인 예상</span><span style={{ fontWeight:700, color:C.purple }}>{qd.forecastRate}%</span>
                   </div>
                   <div style={{ height:5, background:C.border, borderRadius:4, overflow:"hidden" }}>
                     <div style={{ width:`${qd.forecastRate}%`, height:"100%", background:C.purple, borderRadius:4, opacity:.7 }}/>
                   </div>
-                  <div style={{ fontSize:11, color:C.purple, marginTop:3 }}>+{fmt(qd.forecastVal)} 예상</div>
+                  <div style={{ fontSize:12, color:C.purple, marginTop:3 }}>+{fmt(qd.forecastVal)} 예상</div>
                 </div>
               )}
 
               {/* Deal count */}
               <div style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}`, display:"flex", gap:12 }}>
-                <span style={{ fontSize:11, color:C.textMuted }}>완료 <strong style={{ color:C.green }}>{qd.won.length}</strong></span>
-                <span style={{ fontSize:11, color:C.textMuted }}>진행 <strong style={{ color:qd.color }}>{qd.forecast.length}</strong></span>
+                <span style={{ fontSize:12, color:C.textMuted }}>완료 <strong style={{ color:C.green }}>{qd.won.length}</strong></span>
+                <span style={{ fontSize:12, color:C.textMuted }}>진행 <strong style={{ color:qd.color }}>{qd.forecast.length}</strong></span>
               </div>
             </div>
           );
@@ -4851,7 +4730,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
                 <span style={{ width:8, height:8, borderRadius:"50%", background:cfg.color }}/>
                 <span style={{ fontSize:13, fontWeight:700, color:cfg.color }}>{q}</span>
                 <span style={{ fontSize:12, color:C.textMuted }}>{cfg.label}</span>
-                <span style={{ fontSize:11, background:`${cfg.color}15`, color:cfg.color, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{qOpps.length}건</span>
+                <span style={{ fontSize:12, background:`${cfg.color}15`, color:cfg.color, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{qOpps.length}건</span>
                 <span style={{ fontSize:12, color:cfg.color, fontWeight:700, marginLeft:"auto" }}>{fmt(qOpps.reduce((s,o) => s+(o.stage==="수주확정"?o.value:Math.round(o.value*o.probability/100)),0))}</span>
               </div>
               <div style={{ display:"grid", gap:6 }}>
@@ -4865,18 +4744,18 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
                       <div style={{ width:4, height:32, borderRadius:2, background:s.color, flexShrink:0 }}/>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
-                        <div style={{ fontSize:11, color:C.textMuted }}>{cl.name} · {o.owner}</div>
+                        <div style={{ fontSize:12, color:C.textMuted }}>{cl.name} · {o.owner}</div>
                       </div>
                       <div style={{ textAlign:"center", minWidth:80 }}>
                         <div style={{ fontSize:12, fontWeight:700, color:C.text }}>{rdStr || "미설정"}</div>
-                        <div style={{ fontSize:10, color:C.textMuted }}>매출 예정일</div>
+                        <div style={{ fontSize:12, color:C.textMuted }}>매출 예정일</div>
                       </div>
-                      <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                      <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15` }}>
                         <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
                       </span>
                       <div style={{ textAlign:"right", minWidth:70 }}>
                         <div style={{ fontSize:13, fontWeight:800, color:won ? C.green : s.color }}>{fmt(won ? o.value : Math.round(o.value*o.probability/100))}</div>
-                        {!won && <div style={{ fontSize:10, color:C.textMuted }}>가중치</div>}
+                        {!won && <div style={{ fontSize:12, color:C.textMuted }}>가중치</div>}
                       </div>
                       <Btn size="sm" variant="ghost" onClick={e => { e.stopPropagation(); onEditRevDate(o); }}>날짜 수정</Btn>
                     </div>
@@ -4900,7 +4779,7 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                 <span style={{ width:8, height:8, borderRadius:"50%", background:C.textDim }}/>
                 <span style={{ fontSize:13, fontWeight:700, color:C.textMuted }}>일정 미배정</span>
-                <span style={{ fontSize:11, background:`${C.textDim}20`, color:C.textMuted, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{unscheduled.length}건</span>
+                <span style={{ fontSize:12, background:`${C.textDim}20`, color:C.textMuted, padding:"1px 8px", borderRadius:10, fontWeight:700 }}>{unscheduled.length}건</span>
               </div>
               <div style={{ display:"grid", gap:6 }}>
                 {unscheduled.map(o => {
@@ -4911,10 +4790,10 @@ function QuarterlyTracker({ opps, clients, goals, onUpdateGoals, onEditRevDate }
                       <div style={{ width:4, height:32, borderRadius:2, background:C.textDim, flexShrink:0 }}/>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{o.name}</div>
-                        <div style={{ fontSize:11, color:C.textMuted }}>{cl.name} · {o.owner}</div>
+                        <div style={{ fontSize:12, color:C.textMuted }}>{cl.name} · {o.owner}</div>
                       </div>
                       <span style={{ fontSize:12, color:C.textDim }}>날짜 미설정</span>
-                      <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                      <span style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"2px 9px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15` }}>
                         {o.stage}
                       </span>
                       <div style={{ fontSize:13, fontWeight:800, color:s.color }}>{fmt(o.value)}</div>
@@ -5032,7 +4911,7 @@ function GlobalSearch({ opps, clients, actions, onNavigate }) {
           placeholder="영업기회, 고객사, 액션 검색..."
           style={{ background:"none", border:"none", outline:"none", fontSize:13, color:C.text, width:"100%", fontFamily:"inherit" }}
         />
-        {query && <button onClick={()=>{ setQuery(""); setOpen(false); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:14, padding:0, lineHeight:1 }}>✕</button>}
+        {query && <button onClick={()=>{ setQuery(""); setOpen(false); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textMuted, fontSize:14, padding:0, lineHeight:1 }} aria-label="닫기">✕</button>}
       </div>
 
       {/* Dropdown */}
@@ -5050,7 +4929,7 @@ function GlobalSearch({ opps, clients, actions, onNavigate }) {
                 if (!group.length) return null;
                 return (
                   <div key={type}>
-                    <div style={{ padding:"8px 14px 4px", fontSize:10, color:C.textDim, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", background:C.surfaceUp, borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ padding:"8px 14px 4px", fontSize:12, color:C.textDim, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", background:C.surfaceUp, borderBottom:`1px solid ${C.border}` }}>
                       {typeIcon[type]} {typeLabel[type]} ({group.length})
                     </div>
                     {group.map(item => (
@@ -5068,11 +4947,11 @@ function GlobalSearch({ opps, clients, actions, onNavigate }) {
                           <div style={{ fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                             {item.title}
                           </div>
-                          <div style={{ fontSize:11, color:C.textMuted, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          <div style={{ fontSize:12, color:C.textMuted, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                             {item.sub}
                           </div>
                         </div>
-                        <span style={{ fontSize:11, background:`${item.color}15`, color:item.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>
+                        <span style={{ fontSize:12, background:`${item.color}15`, color:item.color, padding:"2px 8px", borderRadius:10, fontWeight:700, flexShrink:0 }}>
                           {item.meta}
                         </span>
                       </div>
@@ -5080,7 +4959,7 @@ function GlobalSearch({ opps, clients, actions, onNavigate }) {
                   </div>
                 );
               })}
-              <div style={{ padding:"8px 14px", fontSize:11, color:C.textDim, textAlign:"right" }}>
+              <div style={{ padding:"8px 14px", fontSize:12, color:C.textDim, textAlign:"right" }}>
                 총 {results.length}건 · Enter로 이동
               </div>
             </div>
@@ -5124,7 +5003,7 @@ function MobileLogModal({ opps, onSave, onClose }) {
 
         {/* Opp select */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>영업기회</div>
+          <div style={{ fontSize:12, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>영업기회</div>
           <select value={oppId} onChange={e=>setOpp(e.target.value)} style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none" }}>
             {opps.filter(o=>o.stage!=="손실").map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
@@ -5132,7 +5011,7 @@ function MobileLogModal({ opps, onSave, onClose }) {
 
         {/* Type */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</div>
+          <div style={{ fontSize:12, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</div>
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             {["방문미팅","전화통화","화상회의","이메일","기타"].map(t=>(
               <button key={t} onClick={()=>setType(t)} style={{ padding:"8px 14px", borderRadius:20, border:`1px solid ${type===t?MC.accent:MC.border}`, background:type===t?MC.accentSoft:"transparent", color:type===t?MC.accent:MC.textMuted, fontSize:13, fontWeight:600, cursor:"pointer" }}>{t}</button>
@@ -5142,13 +5021,13 @@ function MobileLogModal({ opps, onSave, onClose }) {
 
         {/* Content */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>내용</div>
+          <div style={{ fontSize:12, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>내용</div>
           <textarea value={content} onChange={e=>setCont(e.target.value)} placeholder="미팅 내용을 간략히 기록하세요..." style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none", resize:"none", minHeight:90, fontFamily:"inherit", boxSizing:"border-box" }}/>
         </div>
 
         {/* By */}
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:11, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>작성자</div>
+          <div style={{ fontSize:12, color:MC.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>작성자</div>
           <input value={by} onChange={e=>setBy(e.target.value)} placeholder="이름" style={{ width:"100%", background:MC.bg, border:`1px solid ${MC.border}`, borderRadius:10, padding:"12px 14px", color:MC.text, fontSize:15, outline:"none", boxSizing:"border-box" }}/>
         </div>
 
@@ -5167,7 +5046,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
   const [dateF, setDateF]   = useState("오늘"); // 오늘 | 이번주 | 전체
 
   const todayStr = today();
-  const weekEnd  = (() => { const d=new Date(); d.setDate(d.getDate()+(7-d.getDay())); return d.toISOString().split("T")[0]; })();
+  const weekEnd  = (() => { const d=new Date(); d.setDate(d.getDate()+(7-d.getDay())); return localDate(d); })();
 
   // Actions filtered
   const filteredActs = actions
@@ -5245,7 +5124,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
               { label:"기한 초과",  val:lateCount,   color:lateCount>0?MC.red:MC.textMuted,    bg:lateCount>0?MC.redSoft:"transparent"    },
             ].map(s=>(
               <div key={s.label} style={{ background:MC.surface, border:`1px solid ${s.color}30`, borderRadius:12, padding:"14px 16px" }}>
-                <div style={{ fontSize:11, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
+                <div style={{ fontSize:12, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
                 <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.val}</div>
               </div>
             ))}
@@ -5278,7 +5157,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
                     <div style={{ fontSize:15, fontWeight:600, color:MC.text, marginBottom:4 }}>{a.title}</div>
                     <div style={{ fontSize:12, color:MC.textMuted, marginBottom:8 }}>{opp.name||"—"} · {a.owner}</div>
                     <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      <span style={{ fontSize:11, background:`${priColor}18`, color:priColor, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{a.priority}</span>
+                      <span style={{ fontSize:12, background:`${priColor}18`, color:priColor, padding:"2px 9px", borderRadius:10, fontWeight:700 }}>{a.priority}</span>
                       <span style={{ fontSize:12, color:ov?MC.red:MC.textMuted, fontWeight:ov?700:400 }}>{ov?"⚠ ":""}{a.dueDate}</span>
                     </div>
                   </div>
@@ -5298,7 +5177,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
               { label:"파이프라인", val:fmt(activeOpps.reduce((s,o)=>s+o.value,0)), color:MC.text },
             ].map(s=>(
               <div key={s.label} style={{ background:MC.surface, border:`1px solid ${MC.border}`, borderRadius:12, padding:"12px 14px" }}>
-                <div style={{ fontSize:10, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
+                <div style={{ fontSize:12, color:MC.textMuted, fontWeight:600, marginBottom:4 }}>{s.label}</div>
                 <div style={{ fontSize:18, fontWeight:900, color:s.color }}>{s.val}</div>
               </div>
             ))}
@@ -5319,15 +5198,15 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
                     </div>
                     <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
                       <div style={{ fontSize:16, fontWeight:900, color:s.color }}>{fmt(o.value)}</div>
-                      <div style={{ fontSize:10, color:MC.textMuted }}>{o.probability}%</div>
+                      <div style={{ fontSize:12, color:MC.textMuted }}>{o.probability}%</div>
                     </div>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700, color:s.color, background:`${s.color}15` }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:700, color:s.color, background:`${s.color}15` }}>
                       <span style={{ width:5, height:5, borderRadius:"50%", background:s.color }}/>{o.stage}
                     </span>
                     {o.nextStep && (
-                      <div style={{ fontSize:11, color:late?MC.red:MC.textMuted, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>
+                      <div style={{ fontSize:12, color:late?MC.red:MC.textMuted, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>
                         {late?"⚠ ":""}{o.nextStep}
                       </div>
                     )}
@@ -5349,7 +5228,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
               placeholder="이름, 고객사, 직책 검색..."
               style={{ background:"none", border:"none", outline:"none", fontSize:15, color:MC.text, width:"100%", fontFamily:"inherit" }}
             />
-            {search&&<button onClick={()=>setSearch("")} style={{ background:"none", border:"none", color:MC.textMuted, fontSize:16, cursor:"pointer", padding:0 }}>✕</button>}
+            {search&&<button onClick={()=>setSearch("")} style={{ background:"none", border:"none", color:MC.textMuted, fontSize:16, cursor:"pointer", padding:0 }} aria-label="닫기">✕</button>}
           </div>
 
           {/* Contact list */}
@@ -5364,7 +5243,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
                         <span style={{ fontSize:15, fontWeight:700, color:MC.text }}>{c.name}</span>
-                        {c.primary&&<span style={{ fontSize:10, background:MC.accentSoft, color:MC.accent, padding:"1px 7px", borderRadius:8, fontWeight:700 }}>주담당</span>}
+                        {c.primary&&<span style={{ fontSize:12, background:MC.accentSoft, color:MC.accent, padding:"1px 7px", borderRadius:8, fontWeight:700 }}>주담당</span>}
                       </div>
                       <div style={{ fontSize:12, color:MC.textMuted }}>{c.title} · {c.clientName}</div>
                     </div>
@@ -5400,7 +5279,7 @@ function MobileApp({ opps, onUpdateOpps, actions, onUpdateActions, clients, db }
         {tabItems.map(t=>(
           <button key={t.id} onClick={()=>setMTab(t.id)} style={{ flex:1, padding:"10px 0 12px", background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, fontFamily:"inherit" }}>
             <span style={{ fontSize:20, lineHeight:1 }}>{t.icon}</span>
-            <span style={{ fontSize:10, fontWeight:mTab===t.id?700:500, color:mTab===t.id?MC.accent:MC.textMuted, letterSpacing:".02em" }}>{t.label}</span>
+            <span style={{ fontSize:12, fontWeight:mTab===t.id?700:500, color:mTab===t.id?MC.accent:MC.textMuted, letterSpacing:".02em" }}>{t.label}</span>
             {t.id==="actions"&&actions.filter(a=>!a.done&&a.dueDate===todayStr).length>0&&(
               <span style={{ position:"absolute", top:8, width:7, height:7, borderRadius:"50%", background:MC.red }}/>
             )}
@@ -5458,7 +5337,7 @@ function LoginPage() {
           </div>
           <div style={{ textAlign:"left" }}>
             <div style={{ fontSize:20, fontWeight:900, color:C.text, letterSpacing:"-.03em" }}>SalesHub</div>
-            <div style={{ fontSize:10, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase" }}>Kangwon Energy</div>
+            <div style={{ fontSize:12, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase" }}>Kangwon Energy</div>
           </div>
         </div>
 
@@ -5616,8 +5495,8 @@ function NameEditor({ email, currentName, onSaved }) {
         autoFocus
         style={{ background:C.surfaceUp, border:`1px solid ${C.accent}`, borderRadius:6, padding:"3px 8px", color:C.text, fontSize:13, fontWeight:700, outline:"none", width:130 }}
       />
-      <button onClick={save} disabled={saving} style={{ padding:"3px 10px", background:C.accent, color:"#fff", border:"none", borderRadius:6, fontSize:11, cursor:"pointer", fontWeight:700 }}>저장</button>
-      <button onClick={()=>setEditing(false)} style={{ padding:"3px 8px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:6, fontSize:11, cursor:"pointer" }}>취소</button>
+      <button onClick={save} disabled={saving} style={{ padding:"3px 10px", background:C.accent, color:"#fff", border:"none", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:700 }}>저장</button>
+      <button onClick={()=>setEditing(false)} style={{ padding:"3px 8px", background:"transparent", color:C.textMuted, border:`1px solid ${C.border}`, borderRadius:6, fontSize:12, cursor:"pointer" }}>취소</button>
     </div>
   );
 
@@ -5626,7 +5505,7 @@ function NameEditor({ email, currentName, onSaved }) {
       <span style={{ fontSize:13, fontWeight:700, color:currentName?C.text:C.textDim }}>
         {currentName || "이름 미설정"}
       </span>
-      <button onClick={()=>{ setVal(currentName); setEditing(true); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textDim, fontSize:11, padding:0 }}>✏</button>
+      <button onClick={()=>{ setVal(currentName); setEditing(true); }} style={{ background:"none", border:"none", cursor:"pointer", color:C.textDim, fontSize:12, padding:0 }}>✏</button>
     </div>
   );
 }
@@ -5681,7 +5560,7 @@ function AdminPanel({ onClose }) {
             <div style={{ fontSize:18, fontWeight:700, color:C.text }}>사용자 관리</div>
             <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>SalesHub 접근 권한 승인 · 관리자 전용</div>
           </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20 }}>✕</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:20 }} aria-label="닫기">✕</button>
         </div>
 
         {/* Stats */}
@@ -5691,9 +5570,9 @@ function AdminPanel({ onClose }) {
             { label:"승인 대기", val:pendingCount,  color:C.yellow, id:"pending"  },
             { label:"승인 완료", val:approvedCount, color:C.green,  id:"approved" },
           ].map(s=>(
-            <div key={s.id} onClick={()=>setFilter(s.id)} style={{ background:filter===s.id?C.accentSoft:C.surfaceUp, border:`1px solid ${filter===s.id?C.accent:C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", textAlign:"center" }}>
+            <div key={s.id} role="button" tabIndex={0} onClick={()=>setFilter(s.id)} style={{ background:filter===s.id?C.accentSoft:C.surfaceUp, border:`1px solid ${filter===s.id?C.accent:C.border}`, borderRadius:10, padding:"12px 14px", cursor:"pointer", textAlign:"center" }}>
               <div style={{ fontSize:22, fontWeight:900, color:s.color }}>{s.val}</div>
-              <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{s.label}</div>
+              <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -5719,11 +5598,11 @@ function AdminPanel({ onClose }) {
                 <NameEditor email={u.email} currentName={displayName} onSaved={newName=>{
                   setUsers(prev=>prev.map(x=>x.email===u.email?{...x,name:newName}:x));
                 }}/>
-                <div style={{ fontSize:11, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</div>
-                <div style={{ fontSize:10, color:C.textDim, marginTop:1 }}>가입: {u.added_at?.slice(0,10)}</div>
+                <div style={{ fontSize:12, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.email}</div>
+                <div style={{ fontSize:12, color:C.textDim, marginTop:1 }}>가입: {u.added_at?.slice(0,10)}</div>
               </div>
               {/* Status badge */}
-              <span style={{ fontSize:11, padding:"3px 10px", borderRadius:20, fontWeight:700, background:u.approved?C.greenSoft:C.yellowSoft, color:u.approved?C.green:C.yellow, flexShrink:0 }}>
+              <span style={{ fontSize:12, padding:"3px 10px", borderRadius:20, fontWeight:700, background:u.approved?C.greenSoft:C.yellowSoft, color:u.approved?C.green:C.yellow, flexShrink:0 }}>
                 {u.approved ? "승인됨" : "대기 중"}
               </span>
               {/* Actions */}
@@ -5901,11 +5780,11 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <div style={{ fontSize:14, fontWeight:700, color:C.text }}>
                 🔔 알림 센터
-                {unread > 0 && <span style={{ marginLeft:8, fontSize:11, background:redCount>0?C.redSoft:C.yellowSoft, color:redCount>0?C.red:C.yellow, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>미확인 {unread}개</span>}
+                {unread > 0 && <span style={{ marginLeft:8, fontSize:12, background:redCount>0?C.redSoft:C.yellowSoft, color:redCount>0?C.red:C.yellow, padding:"2px 8px", borderRadius:10, fontWeight:700 }}>미확인 {unread}개</span>}
               </div>
               {/* 모두 읽음 버튼 */}
               {unread > 0 && (
-                <button onClick={markAllRead} style={{ fontSize:11, color:C.accent, background:"none", border:"none", cursor:"pointer", fontWeight:600, fontFamily:"inherit", padding:"4px 8px", borderRadius:6, border:`1px solid ${C.accent}30` }}>
+                <button onClick={markAllRead} style={{ fontSize:12, color:C.accent, background:"none", border:"none", cursor:"pointer", fontWeight:600, fontFamily:"inherit", padding:"4px 8px", borderRadius:6, border:`1px solid ${C.accent}30` }}>
                   ✓ 모두 확인
                 </button>
               )}
@@ -5918,7 +5797,7 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
                 { id:"yellow", label:`⚠ 주의 ${notifs.filter(n=>n.level==="yellow").length}` },
                 { id:"blue",   label:`📋 확인 ${notifs.filter(n=>n.level==="blue").length}` },
               ].map(f=>(
-                <button key={f.id} onClick={()=>setFilter(f.id)} style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${filter===f.id?C.accent:C.border}`, background:filter===f.id?C.accentSoft:"transparent", color:filter===f.id?C.accent:C.textMuted, fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                <button key={f.id} onClick={()=>setFilter(f.id)} style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${filter===f.id?C.accent:C.border}`, background:filter===f.id?C.accentSoft:"transparent", color:filter===f.id?C.accent:C.textMuted, fontSize:12, fontWeight:600, cursor:"pointer" }}>
                   {f.label}
                 </button>
               ))}
@@ -5954,8 +5833,8 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
                   {/* 내용 */}
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:12, fontWeight:isRead?500:700, color:isRead?C.textMuted:C.text, marginBottom:2 }}>{n.title}</div>
-                    <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.4 }}>{n.desc}</div>
-                    {n.date && <div style={{ fontSize:10, color:C.textDim, marginTop:3 }}>{n.date}</div>}
+                    <div style={{ fontSize:12, color:C.textMuted, lineHeight:1.4 }}>{n.desc}</div>
+                    {n.date && <div style={{ fontSize:12, color:C.textDim, marginTop:3 }}>{n.date}</div>}
                   </div>
 
                   {/* 이동 or 확인 */}
@@ -5975,11 +5854,11 @@ function NotificationCenter({ opps, actions, clients, onNavigateToPipeline }) {
 
           {/* 푸터 */}
           <div style={{ padding:"10px 18px", borderTop:`1px solid ${C.border}`, background:C.surfaceUp, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div style={{ fontSize:11, color:C.textMuted }}>
+            <div style={{ fontSize:12, color:C.textMuted }}>
               {unread > 0 ? `미확인 ${unread}개 · ` : "모두 확인됨 · "}클릭하면 딜로 이동
             </div>
             {notifs.length > 0 && unread === 0 && (
-              <button onClick={()=>{ setReadIds(new Set()); localStorage.removeItem("sh-notif-read"); }} style={{ fontSize:11, color:C.textDim, background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+              <button onClick={()=>{ setReadIds(new Set()); localStorage.removeItem("sh-notif-read"); }} style={{ fontSize:12, color:C.textDim, background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
                 초기화
               </button>
             )}
@@ -6010,9 +5889,9 @@ function UserMenu() {
         <div style={{ width:32, height:32, borderRadius:"50%", background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{initials}</div>
         <div style={{ textAlign:"left" }}>
           <div style={{ fontSize:12, fontWeight:600, color:C.text, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</div>
-          <div style={{ fontSize:10, color:C.textMuted, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{email}</div>
+          <div style={{ fontSize:12, color:C.textMuted, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{email}</div>
         </div>
-        <span style={{ fontSize:10, color:C.textMuted }}>▾</span>
+        <span style={{ fontSize:12, color:C.textMuted }}>▾</span>
       </button>
 
       {open && <>
@@ -6020,8 +5899,8 @@ function UserMenu() {
         <div style={{ position:"absolute", top:"calc(100% + 8px)", right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"6px", boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:200, minWidth:200 }}>
           <div style={{ padding:"10px 14px", borderBottom:`1px solid ${C.border}`, marginBottom:6 }}>
             <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{name}</div>
-            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{email}</div>
-            {isAdmin && <span style={{ fontSize:10, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, fontWeight:700, marginTop:4, display:"inline-block" }}>관리자</span>}
+            <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{email}</div>
+            {isAdmin && <span style={{ fontSize:12, background:C.accentSoft, color:C.accent, padding:"1px 7px", borderRadius:8, fontWeight:700, marginTop:4, display:"inline-block" }}>관리자</span>}
           </div>
           {isAdmin && (
             <button onClick={()=>{ setOpen(false); setAP(true); }} style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"none", border:"none", cursor:"pointer", borderRadius:8, fontSize:13, color:C.text, fontFamily:"inherit", textAlign:"left" }}>
@@ -6107,14 +5986,14 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
                 onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                 <div style={{ fontSize:28, marginBottom:8 }}>🤝</div>
                 <div style={{ fontSize:14, fontWeight:700, color:C.text }}>활동 기록</div>
-                <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>미팅, 통화, 이메일</div>
+                <div style={{ fontSize:12, color:C.textMuted, marginTop:4 }}>미팅, 통화, 이메일</div>
               </button>
               <button onClick={()=>setMode("action")} style={{ padding:"20px", borderRadius:12, border:`1.5px solid ${C.border}`, background:C.surfaceUp, cursor:"pointer", textAlign:"center", transition:"border-color .15s" }}
                 onMouseEnter={e=>e.currentTarget.style.borderColor=C.accent}
                 onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
                 <div style={{ fontSize:28, marginBottom:8 }}>📋</div>
                 <div style={{ fontSize:14, fontWeight:700, color:C.text }}>액션 추가</div>
-                <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>할 일, 마감일 설정</div>
+                <div style={{ fontSize:12, color:C.textMuted, marginTop:4 }}>할 일, 마감일 설정</div>
               </button>
             </div>
           </div>
@@ -6137,7 +6016,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
                   <div style={{ width:32, height:32, borderRadius:8, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:C.accent, flexShrink:0 }}>{cl.name?.[0]||"?"}</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
-                    <div style={{ fontSize:11, color:C.textMuted }}>{cl.name} · <span style={{ color:s.color }}>{o.stage}</span></div>
+                    <div style={{ fontSize:12, color:C.textMuted }}>{cl.name} · <span style={{ color:s.color }}>{o.stage}</span></div>
                   </div>
                   <span style={{ fontSize:12, fontWeight:700, color:s.color, flexShrink:0 }}>{fmt(o.value)}</span>
                 </button>;
@@ -6154,14 +6033,14 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
               <div style={{ width:30, height:30, borderRadius:7, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff" }}>{selClient?.name?.[0]||"?"}</div>
               <div>
                 <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{selOpp?.name}</div>
-                <div style={{ fontSize:11, color:C.textMuted }}>{selClient?.name} · {selOpp?.stage}</div>
+                <div style={{ fontSize:12, color:C.textMuted }}>{selClient?.name} · {selOpp?.stage}</div>
               </div>
             </div>
 
             {mode==="activity" ? <>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 12px" }}>
                 <div style={{ marginBottom:12 }}>
-                  <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</label>
+                  <label style={{ display:"block", fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>유형</label>
                   <select value={form.type||"방문미팅"} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, outline:"none" }}>
                     {["방문미팅","전화통화","화상회의","이메일","식사미팅","기타"].map(t=><option key={t}>{t}</option>)}
                   </select>
@@ -6176,7 +6055,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
                 <Inp label="담당자" value={form.owner||""} onChange={v=>setForm(p=>({...p,owner:v}))} placeholder="이름"/>
                 <Inp label="마감일" type="date" value={form.dueDate||""} onChange={v=>setForm(p=>({...p,dueDate:v}))}/>
                 <div style={{ marginBottom:16 }}>
-                  <label style={{ display:"block", fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>우선순위</label>
+                  <label style={{ display:"block", fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>우선순위</label>
                   <select value={form.priority||"중간"} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} style={{ width:"100%", background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, outline:"none" }}>
                     {["높음","중간","낮음"].map(p=><option key={p}>{p}</option>)}
                   </select>
@@ -6265,6 +6144,36 @@ function App() {
   const [dbReady, setDbReady] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const [dbError, setDbError] = useState(""); // DB 에러 메시지
+  const [saveFail, setSaveFail] = useState(0);  // 저장 실패 건수
+  const syncSaveFail = () => setSaveFail(sbFailed.size);
+  const retrySave = async () => { setSaving(true); await retrySbFailed(); setSaveFail(sbFailed.size); setSaving(false); };
+
+  // 저장 실패를 놓치지 않도록: 개별 호출에서 처리되지 않은 DB 오류 수집, 미저장 상태에서 창 닫기 경고
+  useEffect(() => {
+    const onRej = (e) => {
+      if (String(e.reason?.message || "").startsWith("[DB]")) { e.preventDefault(); setSaveFail(sbFailed.size); }
+    };
+    window.addEventListener("unhandledrejection", onRej);
+    return () => window.removeEventListener("unhandledrejection", onRej);
+  }, []);
+  useEffect(() => {
+    if (saveFail === 0) return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [saveFail]);
+
+  // 키보드 접근성: role="button"인 div를 Enter/Space로 실행
+  useEffect(() => {
+    const h = (e) => {
+      const t = e.target;
+      if ((e.key === "Enter" || e.key === " ") && t && t.getAttribute && t.getAttribute("role") === "button" && t.tagName !== "BUTTON") {
+        e.preventDefault(); t.click();
+      }
+    };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, []);
 
   // ── Load from Supabase on mount ──
   useEffect(() => {
@@ -6316,7 +6225,7 @@ function App() {
       Promise.all([
         ...changed.map(o => sbUpsert("opps", o.id, o)),
         ...deleted.map(o => sbDelete("opps", o.id)),
-      ]).finally(() => setSaving(false));
+      ]).then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6330,7 +6239,7 @@ function App() {
       Promise.all([
         ...changed.map(c => sbUpsert("clients", String(c.id), c)),
         ...deleted.map(c => sbDelete("clients", String(c.id))),
-      ]).finally(() => setSaving(false));
+      ]).then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6343,7 +6252,7 @@ function App() {
         JSON.stringify(prev[id]) !== JSON.stringify(data)
       );
       Promise.all(changed.map(([id, data]) => sbUpsert("clients_db", id, data)))
-        .finally(() => setSaving(false));
+        .then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6354,7 +6263,7 @@ function App() {
       const prevMap = Object.fromEntries(prev.map(m=>[m.id, JSON.stringify(m)]));
       const changed = next.filter(m => prevMap[m.id] !== JSON.stringify(m));
       Promise.all(changed.map(m => sbUpsert("meetings", m.id, m)))
-        .finally(() => setSaving(false));
+        .then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6368,7 +6277,7 @@ function App() {
       Promise.all([
         ...changed.map(a => sbUpsert("actions", a.id, a)),
         ...deleted.map(a => sbDelete("actions", a.id)),
-      ]).finally(() => setSaving(false));
+      ]).then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6376,7 +6285,7 @@ function App() {
     sGoals(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       setSaving(true);
-      sbUpsert("goals", "goals_main", next).finally(() => setSaving(false));
+      sbUpsert("goals", "goals_main", next).then(syncSaveFail, syncSaveFail).finally(() => setSaving(false));
       return next;
     });
   };
@@ -6448,9 +6357,10 @@ function App() {
   const handleSearchNav = (targetTab, opp) => { if (opp) handleNavigateToPipeline(opp); else navigate(targetTab); };
 
   return <div style={{ minHeight:"100vh", background:C.bg, fontFamily:"'DM Sans','Pretendard','Apple SD Gothic Neo',sans-serif", color:C.text, transition:"background .3s, color .3s" }}>
+    <style>{GLOBAL_A11Y_CSS(C.accent)}</style>
     <div style={{ borderBottom:`1px solid ${C.border}`, padding:"0 32px", background:C.surface, position:"sticky", top:0, zIndex:100, boxShadow:"0 1px 3px rgba(0,0,0,.06)" }}>
       <div style={{ maxWidth:1400, margin:"0 auto", display:"flex", alignItems:"center" }}>
-        <div onClick={()=>navigate("dashboard")} style={{ padding:"14px 0", marginRight:40, display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+        <div role="button" tabIndex={0} onClick={()=>navigate("dashboard")} style={{ padding:"14px 0", marginRight:40, display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:32, height:32, borderRadius:8, background:C.accent, display:"flex", alignItems:"center", justifyContent:"center" }}>
             <span style={{ fontSize:14, fontWeight:900, color:"#fff" }}>S</span>
           </div>
@@ -6460,26 +6370,32 @@ function App() {
           </div>
         </div>
         {TABS.map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
-          <span style={{ fontSize:10 }}>{t.icon}</span>{t.label}
-          {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:10, fontWeight:800 }}>{pending}</span>}
+          <span style={{ fontSize:12 }}>{t.icon}</span>{t.label}
+          {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:12, fontWeight:800 }}>{pending}</span>}
         </button>)}
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
           {/* 알림 센터 */}
           <NotificationCenter opps={opps} actions={actions} clients={clients} onNavigateToPipeline={handleNavigateToPipeline}/>
           {/* DB status indicator */}
-          {!dbReady && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+          {!dbReady && <span style={{ fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.yellow, display:"inline-block" }}/>데이터 로딩 중...
           </span>}
           {dbReady && dbError && (
-            <span style={{ fontSize:11, color:C.red, display:"flex", alignItems:"center", gap:5, cursor:"pointer", maxWidth:200 }} title={dbError}>
+            <span style={{ fontSize:12, color:C.red, display:"flex", alignItems:"center", gap:5, cursor:"pointer", maxWidth:200 }} title={dbError}>
               <span style={{ width:6, height:6, borderRadius:"50%", background:C.red, display:"inline-block", flexShrink:0 }}/>
               DB 연결 오류 — <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" style={{ color:C.red, fontWeight:700 }}>확인하기</a>
             </span>
           )}
-          {dbReady && !dbError && saving && <span style={{ fontSize:11, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
+          {dbReady && saveFail > 0 && (
+            <span role="alert" style={{ fontSize:13, color:C.red, display:"flex", alignItems:"center", gap:8, fontWeight:700 }}>
+              ⚠ 저장 실패 {saveFail}건 — 새로고침하면 사라집니다
+              <button onClick={retrySave} style={{ background:C.red, color:C.btnText, border:"none", borderRadius:6, padding:"3px 10px", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>다시 시도</button>
+            </span>
+          )}
+          {dbReady && !dbError && saveFail === 0 && saving && <span style={{ fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.accent, display:"inline-block" }}/>저장 중...
           </span>}
-          {dbReady && !dbError && !saving && <span style={{ fontSize:11, color:C.green, display:"flex", alignItems:"center", gap:5 }}>
+          {dbReady && !dbError && saveFail === 0 && !saving && <span style={{ fontSize:12, color:C.green, display:"flex", alignItems:"center", gap:5 }}>
             <span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>저장됨
           </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
