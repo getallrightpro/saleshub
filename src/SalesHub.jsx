@@ -443,6 +443,34 @@ function Sel({ label, value, onChange, options=[] }) {
   </div>;
 }
 
+// ── 승인된 SalesHub 사용자 목록 (담당자 선택용, 세션 내 1회 로드·캐시) ──
+let _salesUsersCache = null, _salesUsersPromise = null;
+function useSalesUsers() {
+  const [users, setUsers] = useState(_salesUsersCache || []);
+  useEffect(() => {
+    if (_salesUsersCache) return;
+    if (!_salesUsersPromise) {
+      _salesUsersPromise = fetch(`${SB_URL}/rest/v1/allowed_users?approved=eq.true&select=email,name`, { headers:sbHeaders })
+        .then(r => r.json())
+        .then(rows => { if (Array.isArray(rows)) _salesUsersCache = rows.map(u => (u.name && u.name !== u.email) ? u.name : u.email.split("@")[0]).filter(Boolean); return _salesUsersCache; })
+        .catch(() => null)
+        .finally(() => { _salesUsersPromise = null; });
+    }
+    let alive = true;
+    _salesUsersPromise.then(v => { if (alive && v) setUsers(v); });
+    return () => { alive = false; };
+  }, []);
+  return users;
+}
+
+function OwnerSelect({ label="담당자", value, onChange }) {
+  const users = useSalesUsers();
+  if (users.length === 0) return <Inp label={label} value={value||""} onChange={onChange} placeholder="이름"/>;
+  const names = value && !users.includes(value) ? [value, ...users] : users; // 기존 값(목록에 없는 이름)도 보존
+  return <Sel label={label} value={value||""} onChange={onChange}
+    options={[{ value:"", label:"— 선택 —" }, ...names.map(n=>({ value:n, label:n }))]}/>;
+}
+
 function Btn({ children, onClick, variant="primary", size="md", style:sty={} }) {
   const [h,sH]=useState(false);
   const base={ border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:size==="sm"?12:14, padding:size==="sm"?"5px 12px":"10px 20px", transition:"all .15s", fontFamily:"inherit", ...sty };
@@ -1645,7 +1673,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
               {BUSINESS_UNITS.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}
             </select>
           </div>
-          <Inp label="담당자" value={editForm.owner} onChange={v=>setEF(p=>({...p,owner:v}))}/>
+          <OwnerSelect value={editForm.owner} onChange={v=>setEF(p=>({...p,owner:v}))}/>
         </div>
 
         {/* 영업기회 유형 — 관리자만 수정 가능 */}
@@ -3225,7 +3253,7 @@ function ClientFormModal({ client, clients, onSave, onClose }) {
 
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
       <Inp label="업종" value={f.industry} onChange={s("industry")} placeholder="예: 반도체, 화학"/>
-      <Inp label="영업 담당자" value={f.owner} onChange={s("owner")} placeholder="예: 김민준"/>
+      <OwnerSelect label="영업 담당자" value={f.owner} onChange={s("owner")}/>
     </div>
     <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
       <Btn variant="ghost" onClick={onClose}>{"취소"}</Btn>
@@ -3795,7 +3823,7 @@ function TemplateModal({ opps, clients, onSave, onClose }) {
             {opps.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </div>
-        <Inp label="담당자" value={owner} onChange={setOwner} placeholder="이름 입력"/>
+        <OwnerSelect value={owner} onChange={setOwner}/>
         <Inp label="시작일 (기준일)" type="date" value={baseDate} onChange={setBase}/>
       </div>
     </>}
@@ -3827,7 +3855,7 @@ function ActionForm({ action, clients, opps, onSave, onClose, defaultOppId }) {
       />
     )}
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
-      <Inp label="담당자" value={f.owner} onChange={s("owner")} placeholder="이름"/>
+      <OwnerSelect value={f.owner} onChange={s("owner")}/>
       <Inp label="마감일" type="date" value={f.dueDate} onChange={s("dueDate")}/>
       <Sel label="우선순위" value={f.priority} onChange={s("priority")} options={["높음","중간","낮음"]}/>
       <Sel label={catTouched ? "업무 유형" : "업무 유형 (제목 기반 자동 분류)"} value={f.category||guessActionCategory(f.title)}
@@ -6146,7 +6174,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
             </> : <>
               <Inp label="액션 내용" value={form.title||""} onChange={v=>setForm(p=>({...p,title:v}))} placeholder="예: 견적서 제출"/>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"0 12px" }}>
-                <Inp label="담당자" value={form.owner||""} onChange={v=>setForm(p=>({...p,owner:v}))} placeholder="이름"/>
+                <OwnerSelect value={form.owner||""} onChange={v=>setForm(p=>({...p,owner:v}))}/>
                 <Inp label="마감일" type="date" value={form.dueDate||""} onChange={v=>setForm(p=>({...p,dueDate:v}))}/>
                 <div style={{ marginBottom:16 }}>
                   <label style={{ display:"block", fontSize:12, color:C.textMuted, fontWeight:700, letterSpacing:".06em", textTransform:"uppercase", marginBottom:6 }}>우선순위</label>
