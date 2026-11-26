@@ -3460,9 +3460,11 @@ function ActionTracking({ actions }) {
   const isAdded = (a) => period === "all" ? true : inR(a.createdAt);
   const isDoneIn = (a) => a.done && (period === "all" ? true : inR(a.completedAt || a.dueDate));
   const t = today();
-  const names = [...new Set(actions.map(a => a.owner || "(미지정)"))].sort((a,b)=>a.localeCompare(b,"ko"));
+  // 담당자 이름 정규화: 앞뒤/중복 공백, 보이지 않는 문자, 한글 유니코드 조합 차이를 같은 사람으로 묶음
+  const ownerKey = (o) => String(o || "").normalize("NFC").replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/\s+/g, " ").trim() || "(미지정)";
+  const names = [...new Set(actions.map(a => ownerKey(a.owner)))].sort((a,b)=>a.localeCompare(b,"ko"));
   const rows = names.map(n => {
-    const mine = actions.filter(a => (a.owner || "(미지정)") === n);
+    const mine = actions.filter(a => ownerKey(a.owner) === n);
     const open = mine.filter(a => !a.done);
     return {
       name: n,
