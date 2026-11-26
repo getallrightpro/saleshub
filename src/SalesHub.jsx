@@ -2196,6 +2196,16 @@ function OppListView({ opps, clients, onSelect }) {
 }
 
 // ── Pipeline Main ─────────────────────────────────────────────────────────────
+function FilterSelect({ label, value, onChange, options }) {
+  const active = value !== "전체";
+  return <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:13, color:C.textMuted, fontWeight:600 }}>
+    {label}
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${active?C.accent:C.border}`, background:active?C.accentSoft:C.inputBg, color:active?C.accent:C.text, fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer" }}>
+      {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  </label>;
+}
+
 function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selectedId, onSelectOpp, meetings, onUpdateMeetings, archived, onArchive, onRestore, isAdmin, onNavigateToClient }) {
   const [pipeTab, setPipeTab]   = useState("pipeline");
   const [view, setView]         = useState("kanban");
@@ -2245,7 +2255,7 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
     {pipeTab==="pipeline" && <div>
 
       {/* Metrics row — Chartio 스타일 */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:14 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:12 }}>
         {[
           { label:"활성 파이프라인", val:fmt(totalPipe),  sub:`${allActive.length}개 딜`, color:C.accent, icon:"◈" },
           { label:"가중 예상 매출",  val:fmt(weighted),   sub:"성공 확률 반영",            color:C.purple, icon:"◉" },
@@ -2254,14 +2264,14 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
         ].map(m=>(
           <div key={m.label} style={{
             background:C.surface, border:`1px solid ${C.border}`, borderRadius:12,
-            padding:"16px 20px", transition:"background .3s",
+            padding:"12px 18px", transition:"background .3s",
             borderLeft:`3px solid ${m.color}`,
           }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
               <div style={{ fontSize:13, fontWeight:600, color:C.textMuted }}>{m.label}</div>
               <span style={{ fontSize:13, color:m.color, opacity:.6 }}>{m.icon}</span>
             </div>
-            <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:6 }}>{m.val}</div>
+            <div style={{ fontSize:20, fontWeight:800, color:C.text, letterSpacing:"-.02em", marginBottom:3 }}>{m.val}</div>
             <div style={{ fontSize:12, color:C.textMuted, display:"flex", alignItems:"center", gap:5 }}>
               <span style={{ width:5, height:5, borderRadius:"50%", background:m.color }}/>
               {m.sub}
@@ -2270,8 +2280,8 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
         ))}
       </div>
 
-      {/* 사업부별 지표 */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:18 }}>
+      {/* 사업부 — 한 줄 요약 (클릭하면 필터) */}
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
         {BUSINESS_UNITS.map(bu=>{
           const buOpps    = opps.filter(o=>o.businessUnit===bu.id&&o.stage!=="손실");
           const buActive  = buOpps.filter(o=>o.stage!=="수주확정");
@@ -2280,61 +2290,36 @@ function Pipeline({ opps, onUpdateOpps, clients, actions, onUpdateActions, selec
           const buWonVal  = buWon.reduce((s,o)=>s+o.value,0);
           const isSelected = buFilter===bu.id;
           return (
-            <div key={bu.id} role="button" tabIndex={0} onClick={()=>setBU(isSelected?"전체":bu.id)}
-              style={{
-                background:isSelected?`${buColor(bu.color)}10`:C.surfaceUp,
-                border:`1.5px solid ${isSelected?buColor(bu.color):C.border}`,
-                borderRadius:10, padding:"12px 14px", cursor:"pointer", transition:"all .15s",
-              }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
-                <span style={{ width:6, height:6, borderRadius:"50%", background:bu.color, flexShrink:0 }}/>
-                <span style={{ fontSize:12, fontWeight:700, color:isSelected?bu.color:C.text }}>{bu.id}</span>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-                <div>
-                  <div style={{ fontSize:12, color:C.textMuted, marginBottom:2 }}>파이프라인</div>
-                  <div style={{ fontSize:12, fontWeight:700, color:buColor(bu.color) }}>{fmt(buPipe)}</div>
-                  <div style={{ fontSize:12, color:C.textDim }}>{buActive.length}건</div>
-                </div>
-                <div>
-                  <div style={{ fontSize:12, color:C.textMuted, marginBottom:2 }}>수주확정</div>
-                  <div style={{ fontSize:12, fontWeight:700, color:C.green }}>{fmt(buWonVal)}</div>
-                  <div style={{ fontSize:12, color:C.textDim }}>{buWon.length}건</div>
-                </div>
-              </div>
-            </div>
+            <button key={bu.id} onClick={()=>setBU(isSelected?"전체":bu.id)} aria-pressed={isSelected}
+              style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", borderRadius:10, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap",
+                background:isSelected?`${buColor(bu.color)}14`:C.surfaceUp, border:`1.5px solid ${isSelected?buColor(bu.color):C.border}`, transition:"all .15s" }}>
+              <span style={{ width:8, height:8, borderRadius:"50%", background:buColor(bu.color), flexShrink:0 }}/>
+              <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{bu.id}</span>
+              <span style={{ fontSize:13, fontWeight:800, color:buColor(bu.color) }}>{buPipe>0?fmt(buPipe):"–"}</span>
+              <span style={{ fontSize:12, color:C.textMuted }}>{buActive.length}건</span>
+              {buWon.length>0 && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>수주 {fmt(buWonVal)}</span>}
+            </button>
           );
         })}
       </div>
 
-
-      {/* Controls — 두 줄로 분리해서 버튼 잘림 방지 */}
-      <div style={{ marginBottom:16 }}>
-        {/* 1행: 단계 필터 + 유형 필터 */}
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:10 }}>
-          {[{label:"활성",val:"활성"},{label:"수주확정",val:"수주확정"},{label:"손실",val:"손실"},{label:"전체",val:"전체"}].map((f,fi)=><button key={f} onClick={()=>setStage(f.val)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${stageFilter===f.val?C.accent:C.border}`, background:stageFilter===f.val?C.accentSoft:"transparent", color:stageFilter===f.val?C.accent:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{f.label}</button>)}
-          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
-          {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>전체 사업부</button>}
-          <span style={{ width:1, height:20, background:C.border, alignSelf:"center" }}/>
-          {["전체", ...OPP_TYPES.map(t=>t.id)].map(t=>{
-            const tc = OPP_TYPES.find(x=>x.id===t);
-            return <button key={t} onClick={()=>setTypeFil(t)}
-              style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${typeFilter===t?(tc?.color||C.accent):C.border}`, background:typeFilter===t?`${tc?.color||C.accent}12`:"transparent", color:typeFilter===t?(tc?.color||C.accent):C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:4 }}>
-              {tc&&<span>{tc.icon}</span>}{t}
-            </button>;
-          })}
+      {/* 필터·보기 — 한 줄 */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", marginBottom:16 }}>
+        <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
+          <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+            {[{label:"활성",val:"활성"},{label:"수주확정",val:"수주확정"},{label:"손실",val:"손실"},{label:"전체",val:"전체"}].map(f=>
+              <button key={f.val} onClick={()=>setStage(f.val)} style={{ padding:"7px 14px", background:stageFilter===f.val?C.accent:"transparent", color:stageFilter===f.val?C.btnText:C.textMuted, border:"none", cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{f.label}</button>)}
+          </div>
+          <FilterSelect label="유형" value={typeFilter} onChange={setTypeFil}
+            options={["전체", ...OPP_TYPES.map(t=>t.id)].map(t=>{ const tc=OPP_TYPES.find(x=>x.id===t); return { value:t, label:tc?`${tc.icon} ${t}`:t }; })}/>
+          <FilterSelect label="담당자" value={ownerFilter} onChange={setOwner} options={owners.map(o=>({ value:o, label:o }))}/>
+          {buFilter!=="전체" && <button onClick={()=>setBU("전체")} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${C.accent}`, background:C.accentSoft, color:C.accent, fontSize:12, cursor:"pointer", fontWeight:700, fontFamily:"inherit", whiteSpace:"nowrap" }}>{buFilter} ✕</button>}
         </div>
-        {/* 2행: 담당자 필터 + 뷰 전환 + 추가 버튼 */}
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {owners.map(o=><button key={o} onClick={()=>setOwner(o)} style={{ padding:"6px 14px", borderRadius:20, border:`1px solid ${ownerFilter===o?C.yellow:C.border}`, background:ownerFilter===o?C.yellowSoft:"transparent", color:ownerFilter===o?C.yellow:C.textMuted, fontSize:12, cursor:"pointer", fontWeight:600, whiteSpace:"nowrap" }}>{o}</button>)}
+        <div style={{ display:"flex", gap:8, flexShrink:0 }}>
+          <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+            {[{id:"kanban",label:"칸반"},{id:"list",label:"리스트"}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?C.btnText:C.textMuted, border:"none", cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{v.label}</button>)}
           </div>
-          <div style={{ display:"flex", gap:8, flexShrink:0 }}>
-            <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
-              {[{id:"kanban",label:"칸반"},{id:"list",label:"리스트"}].map(v=><button key={v.id} onClick={()=>setView(v.id)} style={{ padding:"7px 14px", background:view===v.id?C.accent:"transparent", color:view===v.id?"#fff":C.textMuted, border:"none", cursor:"pointer", fontSize:12, fontWeight:600, fontFamily:"inherit", whiteSpace:"nowrap" }}>{v.label}</button>)}
-            </div>
-            <Btn onClick={()=>setAddModal(true)} style={{ whiteSpace:"nowrap" }}>{"+ 영업기회 추가"}</Btn>
-          </div>
+          <Btn onClick={()=>setAddModal(true)} style={{ whiteSpace:"nowrap" }}>{"+ 영업기회 추가"}</Btn>
         </div>
       </div>
 
@@ -3431,6 +3416,104 @@ function ClientDB({ clients, onUpdateClients, db, onUpdateDb, opps, archivedClie
 
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// ─── 액션 추가/완료 현황 (담당자별) ───────────────────────────
+function ActionTracking({ actions }) {
+  const [period, setPeriod] = useState("week");
+  const now = new Date();
+  const range = (() => {
+    if (period === "week") {
+      const day = now.getDay();
+      const mon = new Date(now); mon.setDate(now.getDate() + (day === 0 ? -6 : 1 - day));
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { start: localDate(mon), end: localDate(sun), label: `${mon.getMonth()+1}/${mon.getDate()} ~ ${sun.getMonth()+1}/${sun.getDate()}` };
+    }
+    if (period === "month") {
+      const f = new Date(now.getFullYear(), now.getMonth(), 1), l = new Date(now.getFullYear(), now.getMonth()+1, 0);
+      return { start: localDate(f), end: localDate(l), label: `${now.getMonth()+1}월` };
+    }
+    return { start: "0000-00-00", end: "9999-99-99", label: "전체 기간" };
+  })();
+  const inR = (d) => !!d && d >= range.start && d <= range.end;
+  const isAdded = (a) => period === "all" ? true : inR(a.createdAt);
+  const isDoneIn = (a) => a.done && (period === "all" ? true : inR(a.completedAt || a.dueDate));
+  const t = today();
+  const names = [...new Set(actions.map(a => a.owner || "(미지정)"))].sort((a,b)=>a.localeCompare(b,"ko"));
+  const rows = names.map(n => {
+    const mine = actions.filter(a => (a.owner || "(미지정)") === n);
+    const open = mine.filter(a => !a.done);
+    return {
+      name: n,
+      added: mine.filter(isAdded).length,
+      done: mine.filter(isDoneIn).length,
+      open: open.length,
+      late: open.filter(a => a.dueDate && a.dueDate < t).length,
+      rate: mine.length ? Math.round(mine.filter(a=>a.done).length / mine.length * 100) : 0,
+    };
+  }).sort((a,b) => (b.added + b.done) - (a.added + a.done));
+  const sum = (k) => rows.reduce((s,r)=>s+r[k],0);
+  const approx = period !== "all" && actions.some(a => a.done && !a.completedAt && inR(a.dueDate));
+  const legacy = period !== "all" && actions.some(a => !a.createdAt);
+  const th = { fontSize:12, fontWeight:700, color:C.textMuted, padding:"8px 10px", textAlign:"right", borderBottom:`1px solid ${C.border}` };
+  const td = { fontSize:14, padding:"10px", textAlign:"right", color:C.text, borderBottom:`1px solid ${C.border}`, fontVariantNumeric:"tabular-nums" };
+  return (
+    <Card style={{ marginTop:20 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:800, color:C.text }}>액션 추가 · 완료 현황</div>
+          <div style={{ fontSize:13, color:C.textMuted, marginTop:2 }}>{range.label} 기준 · 담당자별</div>
+        </div>
+        <div style={{ display:"flex", background:C.surfaceUp, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+          {[{id:"week",l:"이번 주"},{id:"month",l:"이번 달"},{id:"all",l:"전체"}].map(p=>
+            <button key={p.id} onClick={()=>setPeriod(p.id)} style={{ padding:"7px 16px", background:period===p.id?C.accent:"transparent", color:period===p.id?C.btnText:C.textMuted, border:"none", cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit" }}>{p.l}</button>)}
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 }}>
+        {[
+          { l:"추가한 액션", v:sum("added"), c:C.accent },
+          { l:"완료(Clear)한 액션", v:sum("done"), c:C.green },
+          { l:"진행 중", v:sum("open"), c:C.text },
+          { l:"기한 초과", v:sum("late"), c:sum("late")>0?C.red:C.textMuted },
+        ].map(k=>(
+          <div key={k.l} style={{ background:C.surfaceUp, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 16px" }}>
+            <div style={{ fontSize:13, color:C.textMuted, fontWeight:600 }}>{k.l}</div>
+            <div style={{ fontSize:28, fontWeight:800, color:k.c, letterSpacing:"-.02em" }}>{k.v}</div>
+          </div>
+        ))}
+      </div>
+      {rows.length === 0 ? <div style={{ color:C.textMuted, fontSize:14, padding:"12px 0" }}>등록된 액션이 없습니다</div> : (
+        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+          <thead><tr>
+            <th style={{ ...th, textAlign:"left" }}>담당자</th><th style={th}>추가</th><th style={th}>완료</th><th style={th}>진행 중</th><th style={th}>기한 초과</th><th style={{ ...th, width:"24%" }}>누적 완료율</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r=>(
+              <tr key={r.name}>
+                <td style={{ ...td, textAlign:"left", fontWeight:700 }}>{r.name}</td>
+                <td style={td}>{r.added}</td>
+                <td style={{ ...td, color:C.green, fontWeight:700 }}>{r.done}</td>
+                <td style={td}>{r.open}</td>
+                <td style={{ ...td, color:r.late>0?C.red:C.textMuted, fontWeight:r.late>0?700:400 }}>{r.late}</td>
+                <td style={td}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, justifyContent:"flex-end" }}>
+                    <div style={{ flex:1, height:6, background:C.border, borderRadius:3, overflow:"hidden", maxWidth:120 }}><div style={{ width:`${r.rate}%`, height:"100%", background:C.green }}/></div>
+                    <span style={{ minWidth:36 }}>{r.rate}%</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {(approx || legacy) && (
+        <div style={{ marginTop:12, fontSize:12, color:C.textMuted, lineHeight:1.6 }}>
+          ※ 추가 건수는 이 기능 적용 이후 등록된 액션부터 집계됩니다(이전 액션은 '전체'에만 포함).
+          {approx && " 완료일이 기록되지 않은 과거 완료 액션은 마감일 기준으로 집계했습니다."}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline, onNavigateToClient }) {
   const [dashTab, setDashTab] = useState("overview");
 
@@ -3523,6 +3606,7 @@ function Dashboard({ opps, actions, meetings, clients, db, onNavigateToPipeline,
           {pending.length===0&&<div style={{ color:C.textMuted, fontSize:13 }}>모든 액션 완료 ✓</div>}
         </Card>
       </div>
+      <ActionTracking actions={actions}/>
     </div>}
 
     {/* ── 주간 리포트 ── */}
@@ -4004,7 +4088,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
     const filteredActs = actions.filter(a => !a.oppId || oppIds.has(a.oppId));
     const pendingActs  = filteredActs.filter(a => !a.done);
     const doneActs     = filteredActs.filter(a => a.done);
-    const lateActs     = pendingActs.filter(a => a.dueDate && a.dueDate < week.start);
+    const lateActs     = pendingActs.filter(a => a.dueDate && a.dueDate < today()); // 대시보드와 동일: 오늘 기준
     const weekActs     = pendingActs.filter(a => a.dueDate >= week.start && a.dueDate <= week.end);
     const lastMeeting  = [...meetings].sort((a,b) => b.weekOf.localeCompare(a.weekOf))[0];
 
@@ -5934,6 +6018,18 @@ const ADMIN_EMAIL = "jyshin@psmgroup.co.kr";
 
 // ─── Quick Input (플로팅 빠른 입력) ─────────────────────────────────────────
 function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
+  const [fabHidden, setFabHidden] = useState(false);
+  useEffect(() => {
+    let last = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y > last + 6 && y > 120) setFabHidden(true);
+      else if (y < last - 6 || y < 120) setFabHidden(false);
+      last = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive:true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [open,    setOpen]   = useState(false);
   const [mode,    setMode]   = useState(null);   // "activity" | "action"
   const [oppId,   setOppId]  = useState("");
@@ -5963,7 +6059,7 @@ function QuickInput({ opps, clients, actions, onSaveActivity, onSaveAction }) {
 
   return <>
     {/* 플로팅 버튼 */}
-    <button onClick={()=>setOpen(true)} style={{ position:"fixed", bottom:28, right:28, width:52, height:52, borderRadius:"50%", background:C.accent, color:"#fff", border:"none", cursor:"pointer", fontSize:24, boxShadow:`0 4px 20px ${C.accentGlow}, 0 2px 8px rgba(0,0,0,.2)`, zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", transition:"transform .15s, box-shadow .15s" }}
+    <button onClick={()=>setOpen(true)} aria-label="빠른 입력" tabIndex={fabHidden?-1:0} style={{ opacity:fabHidden?0:1, pointerEvents:fabHidden?"none":"auto", position:"fixed", bottom:28, right:28, width:52, height:52, borderRadius:"50%", background:C.accent, color:"#fff", border:"none", cursor:"pointer", fontSize:24, boxShadow:`0 4px 20px ${C.accentGlow}, 0 2px 8px rgba(0,0,0,.2)`, zIndex:400, display:"flex", alignItems:"center", justifyContent:"center", transition:"transform .15s, box-shadow .15s, opacity .2s" }}
       onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.1)";}}
       onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
       ＋
@@ -6272,7 +6368,19 @@ function App() {
   };
   const saveActions = async (updater) => {
     sAc(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
+      let next = typeof updater === "function" ? updater(prev) : updater;
+      // 추가일/완료일 기록 (담당자별 추가·완료 집계용)
+      const pm = new Map(prev.map(a => [a.id, a]));
+      next = next.map(a => {
+        const o = pm.get(a.id);
+        let r = a;
+        if (!o) {
+          if (!r.createdAt) r = { ...r, createdAt: today() };
+          if (r.done && !r.completedAt) r = { ...r, completedAt: today() };
+        } else if (!o.done && r.done && !r.completedAt) r = { ...r, completedAt: today() };
+        else if (o.done && !r.done && r.completedAt) { const { completedAt, ...rest } = r; r = rest; }
+        return r;
+      });
       setSaving(true);
       const prevMap = Object.fromEntries(prev.map(a=>[a.id, JSON.stringify(a)]));
       const changed = next.filter(a => prevMap[a.id] !== JSON.stringify(a));
@@ -6409,7 +6517,7 @@ function App() {
       </div>
     </div>
 
-    <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px" }}>
+    <div style={{ maxWidth:1400, margin:"0 auto", padding:"28px 32px 110px" }}>
       <div style={{ display:tab==="dashboard"?"block":"none" }}><Dashboard opps={opps} actions={actions} meetings={meetings} clients={clients} db={db} onNavigateToPipeline={handleNavigateToPipeline} onNavigateToClient={handleNavigateToClient}/></div>
       {tab==="pipeline" &&<Pipeline  opps={opps} onUpdateOpps={saveOpps} clients={clients} actions={actions} onUpdateActions={saveActions} selectedId={oppSel} onSelectOpp={selectOpp} meetings={meetings} onUpdateMeetings={saveMeetings} archived={archived} onArchive={archiveOpp} onRestore={restoreOpp} isAdmin={isAdmin} onNavigateToClient={handleNavigateToClient}/>}
       {tab==="tracker"  &&<QuarterlyTracker opps={opps} clients={clients} goals={goals} onUpdateGoals={saveGoals} onEditRevDate={o=>setRE(o)}/>}
