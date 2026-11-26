@@ -148,6 +148,9 @@ const GLOBAL_A11Y_CSS = (accent) => `
   button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [role="button"]:focus-visible {
     outline: 2px solid ${accent} !important; outline-offset: 2px !important;
   }
+  /* 한글은 글자 단위가 아니라 단어(띄어쓰기) 단위로 줄바꿈, 너무 긴 단어만 예외적으로 끊음 */
+  *, *::before, *::after { word-break: keep-all; overflow-wrap: break-word; }
+  @media (max-width: 1500px) { .sh-date { display: none !important; } }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
   }
@@ -976,7 +979,7 @@ function RichText({ text, size=14, summaryFirst=true }) {
   const bulletRe = /^\s*([-•·*▪●○]|\d+[.)])\s+/;
   const isBullet = l => bulletRe.test(l);
   const hasBullets = lines.some(isBullet);
-  return <div style={{ fontSize:size, color:C.text, lineHeight:1.7, wordBreak:"break-word" }}>
+  return <div style={{ fontSize:size, color:C.text, lineHeight:1.7, wordBreak:"keep-all", overflowWrap:"break-word" }}>
     {lines.map((l,i)=>{
       if (isBullet(l)) {
         return <div key={i} style={{ display:"flex", gap:8, paddingLeft:4, marginTop:2 }}>
@@ -1403,7 +1406,7 @@ function LossLessonEditor({ opp, onUpdate }) {
           </div>
         </div>
       ) : opp.lessonLearned ? (
-        <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
+        <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"keep-all", overflowWrap:"break-word" }}>
           {opp.lessonLearned}
         </div>
       ) : (
@@ -1881,7 +1884,7 @@ function OppDetail({ opp, clients, onUpdate, onBack, actions, onUpdateActions, o
           {a.clientRequest && (
             <div style={{ marginTop:8, background:C.yellowSoft, border:`1px solid ${C.yellow}30`, borderRadius:10, padding:"10px 16px" }}>
               <div style={{ fontSize:12, color:C.yellow, fontWeight:700, letterSpacing:".07em", textTransform:"uppercase", marginBottom:4 }}>💬 고객사 요청사항</div>
-              <div style={{ fontSize:13, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{a.clientRequest}</div>
+              <div style={{ fontSize:13, color:C.text, lineHeight:1.7, whiteSpace:"pre-wrap", wordBreak:"keep-all", overflowWrap:"break-word" }}>{a.clientRequest}</div>
             </div>
           )}
           {a.teamsFile && (
@@ -3083,7 +3086,7 @@ function ClientDetail({ client, db, onUpdateDb, onBack, opps, onNavigateToPipeli
 
                         {/* 카드 본문 */}
                         <div style={{ padding:"14px 16px" }}>
-                          <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{h.content}</div>
+                          <div style={{ fontSize:13, color:C.text, lineHeight:1.8, whiteSpace:"pre-wrap", wordBreak:"keep-all", overflowWrap:"break-word" }}>{h.content}</div>
                         </div>
                       </div>
                     </div>
@@ -4108,7 +4111,7 @@ function WeeklyReport({ opps, actions, meetings, clients, db, onNavigateToPipeli
       const firstLine = (t) => String(t||"").split("\n").map(x=>x.trim()).filter(Boolean)[0] || "";
       const cols = "minmax(120px,1fr) minmax(200px,1.6fr) 110px 110px minmax(260px,2.6fr) 90px";
       const th = { padding:"10px 12px", fontSize:14, fontWeight:800, color:C.text, textAlign:"center", background:C.surfaceUp, borderRight:`1px solid ${C.border}` };
-      const td = { padding:"12px", fontSize:15, color:C.text, borderRight:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center", wordBreak:"break-word" };
+      const td = { padding:"12px", fontSize:15, color:C.text, borderRight:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center", wordBreak:"keep-all", overflowWrap:"break-word" };
       return (
         <Card style={{ marginBottom:24, padding:0, overflow:"hidden" }}>
           <div style={{ padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
@@ -6369,11 +6372,11 @@ function App() {
             <div style={{ fontSize:9, color:C.textMuted, letterSpacing:".10em", textTransform:"uppercase", marginTop:-1 }}>Kangwon Energy</div>
           </div>
         </div>
-        {TABS.map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit" }}>
+        {TABS.map(t=><button key={t.id} onClick={()=>navigate(t.id)} style={{ padding:"18px 16px", background:"none", border:"none", cursor:"pointer", borderBottom:`2px solid ${tab===t.id?C.accent:"transparent"}`, color:tab===t.id?C.accent:C.textMuted, fontWeight:tab===t.id?700:500, fontSize:13, display:"flex", alignItems:"center", gap:6, transition:"color .15s", fontFamily:"inherit", whiteSpace:"nowrap", flexShrink:0 }}>
           <span style={{ fontSize:12 }}>{t.icon}</span>{t.label}
           {t.id==="actions"&&pending>0&&<span style={{ background:lateCount>0?C.red:C.accent, color:"#fff", borderRadius:10, padding:"1px 7px", fontSize:12, fontWeight:800 }}>{pending}</span>}
         </button>)}
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12, whiteSpace:"nowrap", flexShrink:0 }}>
           {/* 알림 센터 */}
           <NotificationCenter opps={opps} actions={actions} clients={clients} onNavigateToPipeline={handleNavigateToPipeline}/>
           {/* DB status indicator */}
@@ -6400,7 +6403,7 @@ function App() {
           </span>}
           <GlobalSearch opps={opps} clients={clients} actions={actions} onNavigate={handleSearchNav}/>
           <ThemeToggle/>
-          <span style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
+          <span className="sh-date" style={{ fontSize:12, color:C.textMuted }}>{new Date().toLocaleDateString("ko-KR",{weekday:"short",month:"long",day:"numeric"})}</span>
           <UserMenu/>
         </div>
       </div>
